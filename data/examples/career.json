@@ -1,0 +1,10 @@
+{
+  "title": "Junior Data Analyst（虚构目标）",
+  "rationale": "已有 Python 数据整理的可迁移经历，但能力范围仍需核验",
+  "supporting_experience_ids": [1],
+  "transferable_skills": ["公开数据清洗", "问题分解"],
+  "gaps": ["SQL 的实际项目证据不足", "业务指标分析经验不足"],
+  "entry_route": ["做一个可复现的业务分析项目", "验证真实招聘JD要求"],
+  "validation_status": "hypothesis",
+  "job_search_keywords": ["数据分析实习", "Junior Data Analyst"]
+}

@@ -1,0 +1,12 @@
+{
+  "target_role": "Junior Data Analyst（虚构目标）",
+  "job_ids": [1],
+  "gaps": ["SQL 项目证据不足"],
+  "weekly_hours": 6,
+  "milestones": [
+    {"title": "构建 SQL 分析样例", "deliverable": "Git 仓库包含 SQL 查询与数据字典", "acceptance_criteria": "提供可重复运行的查询，含测试与结论说明", "due_date": "2026-11-07"},
+    {"title": "分析复盘", "deliverable": "两页业务洞察摘要", "acceptance_criteria": "说明指标口径、边界与一个反例", "due_date": "2026-11-21"}
+  ],
+  "review_date": "2026-11-22",
+  "status": "active"
+}

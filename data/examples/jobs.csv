@@ -1,0 +1,3 @@
+source,source_id,title,company,location,url,description,listed_at,retrieved_at,salary,job_type
+fictional_demo,DEMO-1,数据分析实习生,示例公司A（虚构）,远程,https://example.com/jobs/demo-1,需要Python和SQL基础；分析业务数据；此岗位仅用于测试并非真实招聘,2026-10-01T09:00:00+08:00,2026-10-18T09:00:00+08:00,,internship
+fictional_demo,DEMO-2,初级行业研究助理,示例公司B（虚构）,远程,https://example.com/jobs/demo-2,要求文献检索与数据整理能力；仅用于流程测试,2026-10-02T09:00:00+08:00,2026-10-18T09:00:00+08:00,,full-time

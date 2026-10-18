@@ -1,0 +1,11 @@
+{
+  "job_id": 1,
+  "company_sources": [],
+  "questions": [
+    {"question": "请描述一次你发现数据质量问题的经历", "category": "behavioral", "why_likely": "JD提及数据分析", "confidence": "low"}
+  ],
+  "practice": [
+    {"question": "请描述一次你发现数据质量问题的经历", "answer": "演示：我先核对数据格式，再检查缺失值", "feedback": "还需要交代个人行动及如何验证结果", "evidence_ids": [1]}
+  ],
+  "next_actions": ["补充一个真实且可验证的数据清洗案例"]
+}

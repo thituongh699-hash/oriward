@@ -1,0 +1,14 @@
+{
+  "event": "课程项目：公开数据分析（完全虚构示例）",
+  "context": "小组课程展示；正式使用前必须替换为自己的真实经历",
+  "actions": ["使用 Python 对公开数据进行清洗和可视化", "整理分析过程并展示局限性"],
+  "outcomes": ["完成一份课程展示报告"],
+  "evidence": [
+    {"claim": "使用 Python 清理了公开数据", "source": "示例占位：本人确认", "status": "user_confirmed"}
+  ],
+  "inferred_skills": [
+    {"name": "数据探索", "reason": "做过清洗与展示，但未验证建模深度", "confidence": "medium"}
+  ],
+  "approved_for_resume": true,
+  "privacy": "private"
+}

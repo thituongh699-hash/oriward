@@ -1,0 +1,14 @@
+{
+  "job_id": 1,
+  "requirements": ["Python", "SQL", "业务指标理解"],
+  "strengths": [
+    {"requirement": "Python", "experience_ids": [1], "evidence": "公开数据清洗项目（示例）"}
+  ],
+  "gaps": ["尚无SQL项目成果"],
+  "unknowns": ["目标地区是否接受远程实习", "业务指标理解是否达到岗位要求"],
+  "hard_blockers": [],
+  "recommendation": "upskill",
+  "confidence": "low",
+  "source_checked_at": "2026-10-18",
+  "reasoning": "演示数据并非真实岗位，结论仅用于验证数据流"
+}

@@ -1,0 +1,8 @@
+{
+  "display_name": "示例用户（虚构）",
+  "contact": {"email": "example.invalid@invalid.test", "phone": "", "portfolio": ""},
+  "target_locations": ["可远程"],
+  "preferences": {"job_types": ["internship", "full-time"], "explore_interdisciplinary_roles": true},
+  "constraints": {"weekly_learning_hours": 6},
+  "summary_verified": "具有统计分析训练与项目协作经验，希望探索数据分析及跨行业职业机会。"
+}
