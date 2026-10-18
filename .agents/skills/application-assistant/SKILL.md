@@ -16,7 +16,6 @@ description: Assemble local application packets, bind the exact resume version, 
 Report local IDs, current status, exact document version, outstanding user action and evidence. Keep “ready”, “submitted” and “employer acknowledged” distinct.
 
 ## Career Twin Core contract
-- Open with `python -m careeros pipeline show --job-id <id>` and use its six slots: current stage, last verified event, next action, deadline, blocking issue, source.
-- Submission stays human: only after the user directly reports it, run `application record --id <id> --status SUBMITTED --human-confirmed`. The event stores `from_status`, `to_status` and `human_confirmed`.
-- Every state change gets an action: an interview invitation becomes `action propose --file <json>` (`source_type: interview`, `due_at` = interview time); finishing a step is `action complete --id <id> --evidence "<artifact or what changed>"`, or `--human-confirmed` when only the user's report closes it.
-- Record negative reactions to a job with `signal add`, never as a statement about the user's ability.
+- Open with `pipeline show --job-id <id>`; use its stage, last verified event, next action, deadline, blocker and source.
+- Submission stays human: only after the user directly reports it, run `application record --id <id> --status SUBMITTED --human-confirmed`.
+- Turn each state change into an action (`action propose` / `action complete --evidence ...`), and record negative reactions with `signal add`. Shared rules are in `AGENTS.md`.

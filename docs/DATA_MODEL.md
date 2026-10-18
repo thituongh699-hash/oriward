@@ -196,7 +196,7 @@ READY_FOR_USER -> SUBMITTED -> INTERVIEW -> OFFER -> ACCEPTED
 | --- | --- | --- |
 | `user_assertions` | `subject/predicate/value_json`、`assertion_type`、`epistemic_status`、`confidence`、`source_type/source_ref`、`supersedes_id/superseded_by_id`、`valid_from/valid_to`、`dedupe_key` | 不原地修改；改动必须新版本并闭合旧行；`inferred` 不得自称 `user_confirmed` |
 | `assertion_links` | `assertion_id`、`ref_type`、`ref_id`、`relation` | `relation ∈ supports/contradicts/derived_from/about`；Why 维度只认这些边 |
-| `user_feedback` | `target_type/target_id`、`feedback_type`、`reason`、`scope`、`promoted_assertion_id` | 默认 `scope=this_case`；`promote` 才升格为长期约束，且仍需用户确认 |
+| `user_feedback` | `target_type/target_id`、`feedback_type`、`reason`、`scope`、`promoted_assertion_id` | 默认 `scope=this_case`；`promote --human-confirmed` 才升格为长期约束 |
 | `career_goals` | `title`、`priority(1..5)`、`status`、`target_date`、`success_criteria_json`、`owner(user|agent)` | `owner=agent` 的目标不驱动优先级排序 |
 | `job_pipeline` | `job_id`(PK)、`discovery_status`、`goal_id`、`decision_reason`、`priority`、`last_checked_at`、`next_review_at` | 与 `applications` 分离：无简历也能进短名单；状态转换受白名单限制；`goal_id` 让岗位归到目标 |
 | `next_actions` | `title`、`source_type/source_id`、`action_type`、`status`、`due_at`、`priority`、`effort_hours`、`depends_on_json`、`suggestion_reason`、`requires_approval` | 必须有 `suggestion_reason`；完成需证据或用户确认；`effort_hours` 参与投入成本排序 |

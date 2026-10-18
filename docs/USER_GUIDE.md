@@ -193,44 +193,20 @@ python -m careeros action complete --id <ID> --human-confirmed --evidence "作�
 python -m careeros jobs channels
 ```
 
-当前可实际同步的是公开 Greenhouse 和 Lever job board：
-
-`BOARD_SLUG` 是招聘方公开招聘板的标识，不是公司中文名。请让 Agent 根据招聘方实际公开链接核实该标识和提供商；没有这个标识时，可以先用下面的单岗官网读取或授权文件导入路径，不必为了入门先配置招聘 API。
+当前可实际同步的是公开 Greenhouse 和 Lever job board（`BOARD_SLUG` 是招聘方公开标识，不是公司中文名）；企业官网单岗页用 `official plan/fetch`；国内平台使用你有权导出的 JSON/CSV；本地公开线索用 `jobs search`。
 
 ```text
 python -m careeros jobs sync --provider greenhouse --board <BOARD_SLUG> --company "<公司>" --limit 20
-python -m careeros jobs sync --provider lever --board <BOARD_SLUG> --company "<公司>" --limit 20
-```
-
-对企业官网的一个明确岗位页面，可先生成查看计划，再读取该 URL：
-
-```text
-python -m careeros official plan --company "<公司>" --query "<岗位关键词>"
 python -m careeros official fetch --url "https://<企业职位页>" --company "<公司>"
-```
-
-国内平台和其他渠道可使用你有权导出的 JSON 或 CSV：
-
-```text
 python -m careeros jobs import --json data/private/jobs.json
-python -m careeros jobs import --csv data/private/jobs.csv
-```
-
-还可以生成或查看本地搜索线索：
-
-```text
 python -m careeros jobs search --provider zhiye --query "数据分析实习" --location "<目标城市>" --limit 5
-python -m careeros jobs search-plan --query "数据分析实习" --location "<目标城市>"
-python -m careeros jobs shortlist --query "数据 实习" --location "<目标城市>" --limit 5
 ```
 
-`search-plan` 是下一步建议，`search` 的线索也不等于完整 JD 或仍在招聘。项目不提供登录态抓取、验证码绕过或已验证的 BOSS 直聘专用接入。导入或同步后，先检查单岗完整内容、来源时间和状态：
+完整渠道与参数见 [WORKFLOWS 第 2 节](WORKFLOWS.md#2-建立方向并取得真实岗位样本) 与 [中国渠道](CHINA_JOB_SOURCES.md)。`search` 的线索不等于完整 JD 或仍在招聘；项目不提供登录态抓取、验证码绕过或已验证的 BOSS 直聘专用接入。导入或同步后，检查单岗完整内容、来源时间和状态：
 
 ```text
-python -m careeros jobs list
 python -m careeros jobs show --id <岗位ID>
 python -m careeros jobs card --id <岗位ID>
-python -m careeros jobs snapshots --id <岗位ID>
 python -m careeros pipeline ensure --job-id <岗位ID>
 ```
 

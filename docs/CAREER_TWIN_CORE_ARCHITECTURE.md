@@ -2,7 +2,7 @@
 
 > 状态：**P0 已实现**（schema v3、断言账本、目标/机会/行动、上下文装配、周回顾提案）。
 > 本文回答四件事：现有代码怎么盘、Core 长什么样、五个问题怎么落、怎么分阶段改而不炸。
-> 一句话原则：**Agent 负责思考与对话，8 个 Skills 负责按需执行，Career Twin Core 负责记住并解释用户。**
+> 一句话原则：**Agent 负责思考与对话，8 个工作流 Skills 负责按需执行，Career Twin Core 负责记住并解释用户。**
 
 ---
 
@@ -11,7 +11,7 @@
 | 判断 | 内容 |
 | --- | --- |
 | 产品核心 | `user_assertions`（断言账本）——所有"关于用户的话"只有这一个写入口，永远版本化 |
-| 执行层 | 现有 8 个 Skills 保留不变，只补"读 brief / 写 Core / 回写反馈"三段契约 |
+| 执行层 | 8 个工作流 Skills 保留，只补"读 brief / 写 Core / 回写反馈"三段契约；`document-export` 只做格式转换 |
 | 不新增的东西 | 第二个 agent、常驻进程、队列、向量库、图数据库 |
 | 旧代码处置 | `services/sources/assessment/tracking/feedback/official/discovery` **全部复用**，只做接口收口与两处补列 |
 | 最大风险 | 文档层（JSON blob）与原子层（Core 表）双轨漂移 → 用"单向投影 + 健康检查 + 测试"压住 |
@@ -19,22 +19,7 @@
 
 ---
 
-## 2. 现状盘点：哪些留、哪些改、哪些不碰
-
-代码量（`wc -l`，不含测试）：
-
-| 模块 | 行数 | 实际职责 | 裁决 |
-| --- | --- | --- | --- |
-| `db.py` | 89 | 连接、`audit`、`serialize`、表白名单 | **重构**：DDL 拆到 `migrations.py`，加版本号与备份；`one()` 白名单扩到 Core 表 |
-| `services.py` | 366 | profile、经历/方向/分析/计划/面试的 JSON 写入、岗位导入、简历生成、申请状态机 | **复用**：仅 `update_application` 补写 `from_status/to_status/human_confirmed` |
-| `sources.py` | 587 | CSV/JSON 导入、Greenhouse/Lever 同步、不可变快照、freshness | **复用**，不碰 |
-| `assessment.py` | 725 | JD 拆解草稿/检查、七阶段红蓝评审、A–D 计算 | **复用**，不碰 |
-| `discovery.py` | 472 | 渠道能力矩阵、检索计划、浏览器观察、线索池 | **复用**，不碰 |
-| `feedback.py` | 287 | 招聘反馈、简历改版与事实确认 | **复用**：与新的 `user_feedback`（用户偏好信号）**语义不同，不合并** |
-| `tracking.py` | 435 | 岗位统一卡片、跨平台归并、投递时间线、漏斗 | **复用**，其中 `pipeline()` 保留为旧漏斗视图 |
-| `official.py` / `public_search.py` / `liepin.py` | 1148 | 官网直招页解析、公开检索、猎聘适配 | **复用**，不碰 |
-| `cli.py` | 499 | argparse 巨型分发 | **重构**：新增 7 个 domain，`pipeline` 变可选子命令；保留全部旧命令 |
-| `profile` 表 | 1 行 JSON | 唯一单例，"用户是谁"全靠它 | **降级**：只保留身份信息与硬约束；价值观/偏好迁入断言账本 |
+## 2. 为什么需要 Core
 
 ### 三个结构性缺口（v0.1 为什么不够）
 
@@ -49,7 +34,7 @@
 ```mermaid
 flowchart TD
   U[用户] --> C[Agent：唯一推理与编排层]
-  C -->|意图路由| S[8 个 Skills：按需加载的规范]
+  C -->|意图路由| S[8 个工作流 Skills：按需加载]
   S -->|读写| CLI[python -m careeros]
   CLI --> CORE[Career Twin Core]
   CORE --> A[断言账本<br/>user_assertions + links]
@@ -160,45 +145,26 @@ context brief(≤3200 字符) → Agent 读到五问摘要
 
 ## 6. 存储结构（schema v3）
 
+字段清单与不变量统一在 [DATA_MODEL.md](DATA_MODEL.md)；本节只保留设计判据。
+
 ### 6.1 版本化与迁移
 
-- `schema_migrations(version, name, applied_at, checksum)`，`careeros/migrations.py` 内 `MIGRATIONS` 列表是唯一事实源。
-- `db.connect()` 每次启动调用 `migrations.apply()`：已应用则只做一次 `MAX(version)` 查询，零成本。
-- 首次升级非空库时写出 `careeros.sqlite3.bak-v1-<时间戳>`；迁移在事务内执行，失败回滚。
-- 旧库若已被 v0.1 的 `executescript` 建过表，迁移器**登记**而不重放 v1，避免 `table already exists`。
-- 新增列一律"查 `PRAGMA table_info` 再 `ALTER`"，允许失败重入。
+- `schema_migrations(version, name, applied_at, checksum)`；`careeros/migrations.py` 的 `MIGRATIONS` 是唯一事实源。
+- `db.connect()` 每次启动调用 `migrations.apply()`；已应用时只做一次 `MAX(version)` 查询。
+- 首次升级非空库前写出 `careeros.sqlite3.bak-v<旧版本>-<时间戳>`；迁移在事务内执行，失败回滚。
+- 新增列先查 `PRAGMA table_info` 再 `ALTER`，允许失败重入。
 
-### 6.2 核心表
+### 6.2 断言账本的设计要点
 
-`user_assertions` —— 断言账本
-
-| 字段组 | 字段 | 说明 |
-| --- | --- | --- |
-| 标识 | `subject`、`predicate`、`value_json` | `subject` 用命名空间：`user`、`skill:python`、`career:data-pm`、`work_conditions` |
-| 分类 | `assertion_type` | `fact / preference / value / constraint / skill_hypothesis / career_hypothesis`（`constraint` 为落地扩展，服务"硬约束过滤"） |
-| 认识论 | `epistemic_status` | `user_stated / user_confirmed / document_verified / inferred / disputed / retracted` |
-| 置信 | `confidence` | `low/medium/high`，**只作区间，不当概率** |
-| 来源 | `source_type`、`source_ref`、`explanation` | 9 类来源；`source_ref` 如 `experiences:4`、`user_feedback:7` |
-| 时间 | `recorded_at`、`last_confirmed_at`、`valid_from`、`valid_to` | 有效期由修订动作闭合 |
-| 版本 | `supersedes_id`、`superseded_by_id`、`retracted_at`、`retract_reason` | 双向链，支持前后遍历 |
-| 去重 | `dedupe_key = sha256(subject, predicate, type, value)[:32]` | 只用于**判同**，不是唯一约束（历史版本共用语义） |
-| 基数 | `propose(unique=...)` | `fact/preference` 默认单值：同 `subject.predicate` 出现不同值 → 必须 `revise`；`constraint/value/skill_hypothesis/career_hypothesis` 默认多值可共存（两条约束、两个方向） |
-
-基数规则解决了一个真实矛盾：**"不接受长期出差"与"不接受外包编制"必须能同时存在，而"常住城市是南京"与"是杭州"必须互斥。** 前者是多值集合，后者是函数式属性；把判断权交给断言类型，而不是让模型猜。
-
-`assertion_links` —— 溯源边：`(assertion_id, ref_type, ref_id, relation)`，`relation ∈ supports / contradicts / derived_from / about`；`ref_type` 覆盖 `assertion/experience/feedback/job/application/goal/action/document/message`。这就是 Why 维度的骨架。指向 `experience/job/assertion/feedback/application/goal/action` 的链接会校验目标行是否存在——**悬空的溯源链比没有链更危险**，因此整条提案会回滚。
-
-`user_feedback` —— 情境化信号：`target_type/target_id/feedback_type/reason/source/scope/recorded_at/promoted_assertion_id`。`scope` 默认 `this_case`，只有 `promote` 才变 `general`。
-
-`career_goals` —— `direction_id/title/priority(1..5)/status(exploring|active|paused|achieved|discarded)/target_date/success_criteria_json/time_budget_hours/owner(user|agent)/rationale`。
-
-`job_pipeline` —— `job_id` 主键、`discovery_status(discovered|evaluating|shortlisted|parked|discarded)`、`goal_id`（该机会服务的目标，可空）、`decision_reason`、`priority`、`last_checked_at`、`next_review_at`。与 `applications` **完全分离**：没简历也能进短名单。
-
-`next_actions` —— `title/source_type/source_id/action_type/status(todo|doing|blocked|done|cancelled)/due_at/priority/effort_hours/depends_on_json/suggestion_reason/requires_approval/completed_at/completion_evidence`。
-
-`reflection_runs` —— `period_start/period_end/input_event_ids_json/proposed_updates_json/approved_updates_json/status`。
-
-`application_events` 补列 —— `from_status/to_status/human_confirmed/evidence_ref`，使状态变化成为**不可变事件**，`applications.status` 退化为投影。
+- `subject` 用命名空间：`user`、`skill:python`、`career:data-pm`、`work_conditions`。
+- `epistemic_status` 决定准入：`inferred` 与低置信 `user_stated` 不进画像；`disputed` 保留双方理由；`retracted` 只留审计。
+- 改值必须 `revise`：新行用 `supersedes_id` 指向旧行，旧行闭合 `valid_to/superseded_by_id`；已闭合的行不能再被确认、存疑或撤回。
+- 基数由类型决定：`fact/preference` 默认单值，同 `subject.predicate` 出现不同值必须 `revise`；`constraint/value/skill_hypothesis/career_hypothesis` 默认多值共存。
+- `dedupe_key = sha256(subject, predicate, type, value)[:32]` 只用于判同，不是唯一约束（历史版本共享语义）。
+- `assertion_links` 是 Why 维度的骨架：`relation ∈ supports/contradicts/derived_from/about`；指向 `experience/job/assertion/feedback/application/goal/action` 的边会校验目标存在，悬空链接使整条提案回滚。
+- `user_feedback.scope` 默认 `this_case`；`promote --human-confirmed` 才变 `general` 并生成约束断言。
+- `job_pipeline` 与 `applications` 完全分离：没简历也能进短名单；`goal_id` 把岗位归到目标，`next_actions.effort_hours` 参与投入成本排序。
+- `application_events` 的 `from_status/to_status/human_confirmed` 使状态变化成为不可变事件，`applications.status` 退化为投影。
 
 ### 6.3 与旧表的关系
 
@@ -206,8 +172,8 @@ context brief(≤3200 字符) → Agent 读到五问摘要
 | --- | --- | --- |
 | `profile` | 仅保留身份 + 硬约束 | 不再承载价值观；`sync-legacy` 一次性投影，之后由断言账本负责 |
 | `experiences` | 证据文档 | 断言通过 `links(ref_type=experience)` 指向它，**不复制内容** |
-| `career_directions` | 旧方向记录 | 投影为 `career_hypothesis`；旧行保留只读，`validation_status` 写入 value |
-| `jobs` | 岗位文档 | `job_pipeline` 一对一挂接；岗位内容变更仍由 `job_source_snapshots` 管 |
+| `career_directions` | 旧方向记录 | 投影为 `career_hypothesis`；旧行保留只读 |
+| `jobs` | 岗位文档 | `job_pipeline` 一对一挂接；内容变更仍由 `job_source_snapshots` 管 |
 | `applications` | 申请实体 | 保持"准备≠提交"；`SUBMITTED` 仍需 `--human-confirmed` |
 | `recruiting_feedback` | 招聘方反馈 | 与 `user_feedback` **不合并**：前者是外部结果，后者是用户偏好 |
 
@@ -288,11 +254,7 @@ context brief(≤3200 字符) → Agent 读到五问摘要
 
 ## 8. 八个 Skills 的职责边界与回写契约
 
-三条硬规则（已写入 `AGENTS.md`）：
-
-1. 会话开始先 `context brief`；资料不足时**按需钻取**，不整库入上下文。
-2. 重大用户模型变化先 `belief propose`，由用户 `confirm`；Skill 不得替用户确认。
-3. 任何连续任务必须明确 `status`、`next_action`、`blocker`。
+通用三条规则（读 brief、`belief propose` 后由用户 `confirm`、状态三元组）只写在 `AGENTS.md`，本节只列**每个技能特有**的读写边界。
 
 | Skill | 触发 | 读 | 写（Core） | 回写格式 | 禁止 |
 | --- | --- | --- | --- | --- | --- |
@@ -305,13 +267,11 @@ context brief(≤3200 字符) → Agent 读到五问摘要
 | `learning-planner` | 补差距、做学习计划 | 分析差距 + `feedback plan` | `learning save`；`goal add`；`action propose(learn)` | 计划 JSON（里程碑含验收标准） | 把 `structural` 差距写成措辞问题 |
 | `interview-coach` | 面试、模拟面试 | `pipeline show`、简历、反馈 | `interview save`；`signal add`；`belief propose` | 面试 JSON + 反馈（`kind=mock|actual|hypothesis`） | 编造候选人情报；泄露他人信息 |
 
-**document-export 不在上表中**：它只把已生成的简历或审核后的结构化内容转成 DOCX/PDF，不读 brief、不写回任何 Core 记录、不代表事实确认或投递。
+**document-export 不在上表中**：它只把已生成的简历或审核后的结构化内容转成 DOCX/PDF，不读 brief、不写回任何 Core 记录、不代表事实确认或投递。用户偏好信号走 `signal`，招聘方反馈走 `feedback`，两者不合并。
 
-**关于 feedback 的命名分歧（需注意）**：设计稿写的是 `feedback add` 存用户信号，但 v0.1 已有 `feedback save/list/plan/resolve` 专指**招聘方反馈**。为不破坏既有 Skill 与测试，用户信号落在 `signal add/list/promote`。两者不可混用：`recruiting_feedback` 是外部结果，`user_feedback` 是用户偏好。
+### 8.1 最小写入体
 
-### 8.1 回写 JSON 契约
-
-CLI 会拒绝未知字段（防止拼写错误静默变成默认值）。四类最小写入体：
+CLI 拒绝未知字段。两个最常用示例：
 
 ```json
 // belief propose
@@ -323,32 +283,11 @@ CLI 会拒绝未知字段（防止拼写错误静默变成默认值）。四类�
   "source_type": "model_inference",
   "confidence": "medium",
   "explanation": "经历 3 中独立完成查询优化",
-  "links": [
-    {"ref_type": "experience", "ref_id": 3, "relation": "derived_from"},
-    {"ref_type": "feedback", "ref_id": 2, "relation": "supports"}
-  ]
+  "links": [{"ref_type": "experience", "ref_id": 3, "relation": "derived_from"}]
 }
+```
 
-// signal add
-{
-  "target_type": "job",
-  "target_id": 7,
-  "feedback_type": "not_interested",
-  "reason": "需要长期驻场客户现场",
-  "scope": "this_case"
-}
-
-// goal add
-{
-  "title": "半年内转数据产品",
-  "priority": 1,
-  "status": "active",
-  "target_date": "2026-12-31",
-  "success_criteria": ["拿到 1 个面试"],
-  "time_budget_hours": 6,
-  "owner": "user"
-}
-
+```json
 // action propose
 {
   "title": "写一份需求文档样例",
@@ -357,54 +296,26 @@ CLI 会拒绝未知字段（防止拼写错误静默变成默认值）。四类�
   "action_type": "learn",
   "due_at": "2026-10-22T20:00:00+08:00",
   "priority": 2,
+  "effort_hours": 2,
   "suggestion_reason": "方向缺口：缺少需求文档作品"
 }
 ```
 
-`source_type` 决定初始认识状态：`user_message/interview/legacy_profile → user_stated`、`document → document_verified`、`experience → user_confirmed`、`model_inference/reflection/external_source → inferred`。想覆盖默认值必须显式传 `epistemic_status`，但 `model_inference` 永远不能直接写入 `user_confirmed`。
+`source_type` 决定初始认识状态：`user_message/interview/legacy_profile → user_stated`、`document → document_verified`、`experience → user_confirmed`、`model_inference/reflection/external_source → inferred`。覆盖默认值必须显式传 `epistemic_status`，但 `model_inference` 永远不能直接写入 `user_confirmed`。
 
 ---
 
-## 9. 渐进式迁移路径
+## 9. 状态与风险
 
-### P0（本次已完成）
+P0 交付与 P1/P2 计划的逐项历史见 [CHANGELOG](../CHANGELOG.md) 与 [ROADMAP](ROADMAP.md)。当前是 schema v3；硬约束接入排序、方向级自动反证、面试事件结构化仍未做。
 
-| # | 交付 | 风险 | 验证 |
-| --- | --- | --- | --- |
-| 1 | `schema_migrations` + 升级前备份 + 幂等补列 | 旧库结构不一致导致升级失败 | `test_migrations_are_idempotent`；真实库 `init` 后生成 `.bak-v1-*` |
-| 2 | `user_assertions` + `assertion_links`（版本链、去重、冲突拒绝、撤回） | 语义漂移：`subject/predicate` 命名失控 | `test_revision_preserves_both_versions`、`test_conflicting_restatement_needs_revise` |
-| 3 | 认识论守卫（推断不得自证、确认需用户动作） | 模型把猜测写成事实 | `test_model_inference_cannot_confirm_itself`、`test_confirmation_is_an_explicit_user_action` |
-| 4 | `career_goals` / `job_pipeline` / `next_actions` + 状态机 | 状态机过严阻塞真实流程 | `test_shortlist_without_resume_or_application` |
-| 5 | `context brief/inspect/why/history` | 摘要过长挤占上下文；裁剪丢关键信息 | `test_brief_is_bounded_and_traceable`、`test_retraction_disappears_from_brief` |
-| 6 | `user_feedback` + `promote` | 一次反馈被误升级为人格标签 | `test_feedback_is_case_scoped_until_promoted` |
-| 7 | 投递事件补 `from/to/human_confirmed` | 旧测试回归 | `test_application_transition_is_an_immutable_event` + 原 105 项测试 |
-| 8 | `twin status/sync-legacy/export` | 重复投影产生重复断言 | `test_legacy_sync_is_repeatable` |
-| 9 | 周回顾提案（不改画像） | 用户以为已生效 | `test_reflection_only_proposes`（`applied=false`） |
-
-命令面新增：`context`、`belief`、`goal`、`pipeline list/show/update`、`action`、`signal`、`reflection`、`twin`。旧命令与 `brief`/`pipeline` 漏斗视图全部保留。
-
-### P1（下一阶段，按价值排序）
-
-1. **硬约束接入排序**：`constraint` 断言命中 → 候选行动降级或剔除，并在 `why` 里写明"违反约束 X（断言 #12）"。验证：一条"不接受出差"约束能拦住对应岗位的 `apply` 行动。
-2. **方向级自动反证**：`signal(not_interested, career_direction)` → 自动为对应假设追加 `contradicts` 边并生成修订提案。风险：过度敏感导致方向反复横跳 → 提案化而非直接改。
-3. **面试事实结构化**：`interviews` 从 JSON blob 拆出 `interview_events`（轮次、题型、自评、反馈），供 `interview-coach` 汇总。
-4. **周回顾逐条批准**：`reflection decide --accept 0,2`，每条提案独立落库。
-5. **brief 增补"最近变化"区块**：把 7 天内被修订/撤回的断言摘要进 brief，直接支撑"Why 变了"。
-
-### P2（明确延后）
-
-- 可视化状态面板（只读，从 `export_bundle` 渲染）。
-- 数据删除与合规：`assertion purge`、按来源批量删除、删除后派生摘要失效验证（brief 无缓存，天然支持）。
-- 语义检索：**暂不做**。当前数据量下 `belief list --subject` + SQL 足够；向量库在没有评估集前只是负债。
-- 多用户/租户：需先有认证、加密与租户隔离，见 `docs/ROADMAP.md`。
-
-### 全阶段风险台账
+### 风险台账
 
 | 风险 | 触发场景 | 缓解 | 验证 |
 | --- | --- | --- | --- |
 | 双轨漂移（blob vs atom） | Skill 只写旧表，brief 读不到 | 投影只做 v0.1→v0.2 单向；`twin status.health` 暴露未映射岗位/应用 | `sync-legacy` 幂等测试 + 健康检查 |
 | 断言爆炸 | 每个细节都建断言 | 只对"会被引用/被质疑"的判断建模；文档层承载叙述 | `belief list` 人工抽查 |
-| 过度推断 | 模型把一次行为当稳定特质 | `inferred` 不得进入 who_am_i；`promote` 需显式；`dispute` 保留理由 | 认识论守卫测试 |
+| 过度推断 | 模型把一次行为当稳定特质 | `inferred` 与低置信自述不进 who_am_i；`promote` 需人工确认；`dispute` 保留理由 | 认识论守卫测试 |
 | 预算裁剪丢信息 | 数据增长后 brief 只剩标题 | `truncated` 字段 + `drill_down` 命令；Section 级保底 1 条 | 20 条断言下 2000 字符仍可读 |
 | 迁移破坏数据 | 旧库字段缺失 | 事务 + 备份 + 幂等补列 | 真实库 `init` 已验证 |
 | 外部文本注入 | JD/网页含"忽略以上指令" | 外部内容只作数据；`explanation` 字段不执行；提交必须人工 | 既有安全规则 + `AGENTS.md` |
@@ -425,7 +336,7 @@ CLI 会拒绝未知字段（防止拼写错误静默变成默认值）。四类�
 | 7 纠正/撤回/删除后派生摘要失效 | `test_retraction_disappears_from_brief` |
 | 8 求职结果不被解释为能力优劣 | `signal` 与 `recruiting_feedback` 分表；反馈只作观察 |
 
-运行：`python -m unittest discover -s tests -v`（当前 154 项全绿，其中 11 项导出行为测试、其余含 32 项 Core 验收与 7 项技能契约/命令检查）；端到端连通性另有 `bash scripts/smoke_twin_core.sh`（8 项断言，隔离数据库）。
+运行：`python -m unittest discover -s tests -v`（当前 160 项全绿，含 11 项导出行为测试与 6 项文档预算/链接检查）；端到端连通性另有 `bash scripts/smoke_twin_core.sh`（8 项断言，隔离数据库）。
 
 ---
 
@@ -440,36 +351,6 @@ CLI 会拒绝未知字段（防止拼写错误静默变成默认值）。四类�
 
 ---
 
-## 附：命令速查
+## 附：命令入口
 
-```bash
-python -m careeros init                      # 建库/迁移（打印 schema 版本）
-python -m careeros twin status               # 健康检查 + 建议下一步
-python -m careeros twin sync-legacy          # v0.1 → v0.2 单向投影（可重复）
-
-python -m careeros context brief             # 五问摘要（≤3200 字符）
-python -m careeros context why --assertion-id 12
-python -m careeros context inspect --assertion-id 12
-python -m careeros belief history --id 12
-
-python -m careeros belief propose --file b.json
-python -m careeros belief confirm --id 12
-python -m careeros belief revise  --file r.json
-python -m careeros belief dispute --id 12 --reason "情境不适用"
-python -m careeros belief retract --id 12 --reason "用户改主意了"
-
-python -m careeros goal add --file goal.json
-python -m careeros goal list --status active
-
-python -m careeros pipeline list --status shortlisted
-python -m careeros pipeline show --job-id 7
-python -m careeros pipeline update --job-id 7 --status parked --reason "地点不适合"
-
-python -m careeros action list --sort due
-python -m careeros action propose --file task.json
-python -m careeros action complete --id 8 --human-confirmed
-
-python -m careeros signal add --file s.json
-python -m careeros signal promote --id 3 --human-confirmed
-python -m careeros reflection weekly
-```
+完整命令序列与状态推进见 [WORKFLOWS.md](WORKFLOWS.md)；精确参数用 `python -m careeros <domain> <action> --help` 查询，不在本设计文档重复维护。

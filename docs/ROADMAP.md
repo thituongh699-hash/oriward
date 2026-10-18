@@ -1,5 +1,7 @@
 # Roadmap · 当前能力与后续边界
 
+> 历史与计划记录：已交付条目保留作变更线索，当前行为以 AGENTS 与代码为准。
+
 主要服务在校生与应届生的持续求职准备：先理解真实经历与约束，再验证方向、积累能力证据，逐步安排学习、实习与校招投递。以用户选择的 Agent 为对话与推理入口，文件、CLI 和本地记录保持工具无关；跨工具的具体权限与发现方式见 [用户入门手册](USER_GUIDE.md)。
 
 ## 当前版本 v0.2.0 · Career Twin Core
@@ -8,7 +10,7 @@
 
 - `schema_migrations` 版本化迁移，升级前自动备份，补列幂等。
 - `user_assertions` / `assertion_links`：关于用户的每句话都有来源、置信度、有效期与版本链；推断不能自称已确认。
-- `user_feedback`：情境化反馈，`promote` 才升格为长期约束，仍需用户 `confirm`。
+- `user_feedback`：情境化反馈，`promote --human-confirmed` 才升格为长期约束。
 - `career_goals` / `job_pipeline` / `next_actions`：目标、机会（投递前）、行动三层分开；单岗强制给出阶段/事件/下一步/截止/阻塞/来源。
 - `context brief`：五问摘要（Who am I / Who could I become / Where am I now / What next / Why），有界、可钻取、可追溯。
 - `reflection weekly`：只产出待审批提案。

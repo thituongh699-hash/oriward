@@ -1,5 +1,7 @@
 # Bounded implementation research · 2026-10-18
 
+> 历史调研记录：结论反映 2026-10-18 的检查结果，上游可能已变化；当前实现以 AGENTS 与代码为准。
+
 本轮只调研与岗位来源 adapter、简历版本/反馈闭环直接相关的现有方案。GitHub repository/contents API 与项目原始文件在 2026-10-18 检查；以下区分源码事实、上游自述和 CareerOS 决策，不把上游 README 当成已在本项目部署的能力。
 
 ## JobSpy

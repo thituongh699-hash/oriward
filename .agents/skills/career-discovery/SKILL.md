@@ -19,8 +19,6 @@ Primarily support students and recent graduates. Coursework, group assignments, 
 Never invent dates, employers, titles, metrics, certificates, skill levels or causal impact. Do not upload personal evidence to a third-party service without explicit authorization for that service and purpose.
 
 ## Career Twin Core contract
-- Start with `python -m careeros context brief`; drill into only the assertions relevant to the current question.
-- Write new claims with `belief propose`: model inference uses `source_type: model_inference` and stays `inferred`.
-- Every skill inference needs `links: [{"ref_type": "experience", "ref_id": <id>, "relation": "derived_from"}]`; without it `context why` cannot trace it.
-- After the user personally agrees, run `belief confirm --id <id>`. Never confirm on the user's behalf.
-- Report the experience ID and every assertion ID with its epistemic status.
+- Write new claims with `belief propose` (`source_type: model_inference`, stays `inferred`).
+- Every skill inference needs a `derived_from` link to the experience; without it `context why` cannot trace it.
+- After the user personally agrees, `belief confirm --id <id>`. Shared rules are in `AGENTS.md`.

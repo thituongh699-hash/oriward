@@ -20,10 +20,7 @@
 
 ## 数据表
 
-- `vacancy_groups`：`group_key` 唯一，保存归一化后的公司、岗位、城市。
-- `job_group_members`：`job_id → group_id`，一个岗位只属于一个组。
-- `application_events`：`application_id`、`kind`、`label`、`scheduled_at`、`occurred_at`、`data`。
-- `applications`：新增 `channel`、`apply_url`、`applied_at`（旧库由 `db.migrate` 自动补列）。
+`vacancy_groups`、`job_group_members`、`application_events` 与 `applications` 的字段和不变量见 [DATA_MODEL.md](DATA_MODEL.md#career-twin-coreschema-v3)。本节只保留业务规则。
 
 `application_events` 由状态流转自动写入 `applied/interview/offer/rejection/withdrawal`，手工节点用于记录尚未发生的笔试面试安排。
 

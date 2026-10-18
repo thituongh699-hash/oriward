@@ -16,7 +16,7 @@ For students and recent graduates, first ask about available weekly hours, exams
 Do not guarantee recruiting outcomes, invent progress, or upload private work to third-party platforms without explicit authorization.
 
 ## Career Twin Core contract
-- Plans must land in the Twin: `goal add` for a user-endorsed target, `action propose` (`action_type: learn`) for each milestone, always with `suggestion_reason`.
-- Give every milestone with a deadline a `due_at`; the ranking will surface it. Do not invent priorities the user did not agree to.
-- When a plan stalls, use `action block --id <id> --reason` or `goal update --status paused`; the trajectory is the point, not a clean record.
-- Completed learning becomes evidence through `career-discovery`; never flip an assertion to confirmed yourself.
+- Plans land in the Twin: `goal add` for a user-endorsed target, `action propose` (`action_type: learn`) for each milestone, always with `suggestion_reason`.
+- Give every milestone with a deadline a `due_at`; do not invent priorities the user did not agree to.
+- When a plan stalls, use `action block --id <id> --reason` or `goal update --status paused`; the trajectory is the point.
+- Completed learning becomes evidence through `career-discovery`; never flip an assertion to confirmed yourself. Shared rules are in `AGENTS.md`.

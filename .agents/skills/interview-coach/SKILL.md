@@ -18,7 +18,7 @@ For student and graduate-entry roles, practice explaining real coursework, campu
 Report sources/dates, observed answer evidence, hypotheses, three prioritized actions and any saved IDs. Never promise interview or offer outcomes.
 
 ## Career Twin Core contract
-- Read `pipeline show --job-id <id>` and the latest `application_events` first. Without a submitted application, treat the session as `mock`, not as employer contact.
-- After a session, record the user's own reactions with `signal add`; capability revisions go through `belief propose` with `links` to the experience or interview that supports them, then wait for `belief confirm`.
-- Schedule the next round as `action propose` (`source_type: interview`, `due_at` = interview time), so it appears in "what next".
-- A rejection or a poor interview never proves low ability on its own; the cause may be competition or a hiring freeze.
+- Read `pipeline show --job-id <id>` and the latest application events first. Without a submitted application, treat the session as `mock`, not employer contact.
+- Record the user's own reactions with `signal add`; capability revisions go through `belief propose` and only the user may `belief confirm`.
+- Schedule the next round with `action propose` (`source_type: interview`, `due_at` = interview time), so it appears in "what next".
+- A rejection or poor interview never proves low ability on its own; competition or a hiring freeze may explain it. Shared rules are in `AGENTS.md`.

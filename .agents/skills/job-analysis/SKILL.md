@@ -32,7 +32,7 @@ Grades are CLI-computed simulations: A requires complete confirmed coverage, all
 After a revision, obtain a new packet and perform an independent review. Stop after two red/blue rounds when no new evidence appears.
 
 ## Career Twin Core contract
-- Read `context brief` and keep established (`user_confirmed` / `document_verified`) capability separate from `inferred` capability; `met` may only cite approved experience IDs.
+- Read `context brief`; keep `user_confirmed` / `document_verified` capability separate from `inferred`, and let `met` cite only approved experience IDs.
 - Record the decision so it reaches "where am I now": `pipeline update --job-id <id> --status evaluating|shortlisted|parked|discarded --reason "<why>"`.
-- Turn "needs more evidence" into `action propose` (`source_type: job`) with a `suggestion_reason`; an action without a reason is rejected by the CLI.
-- If the JD conflicts with a confirmed hard constraint, cite the assertion ID and park or discard the opportunity instead of arguing fit.
+- Turn "needs more evidence" into `action propose` (`source_type: job`) with a `suggestion_reason`.
+- If the JD conflicts with a confirmed hard constraint, cite the assertion ID and park or discard instead of arguing fit. Shared rules are in `AGENTS.md`.

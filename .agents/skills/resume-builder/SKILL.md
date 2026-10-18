@@ -19,7 +19,7 @@ For students and recent graduates, use honest coursework, projects, campus roles
 Output `DRAFT — not submitted`, exact resume/version IDs, paths, evidence IDs, pending confirmations and remaining risks. Never upload or send a resume without explicit authorization for the named destination.
 
 ## Career Twin Core contract
-- Only approved experiences may be used. A `skill_hypothesis` in the Twin is not a resume source unless that assertion is `user_confirmed` and links to an experience.
-- Register the follow-up work as an action (`action propose`, `action_type: prepare`) or complete an existing one, so the resume step is visible in "what next".
+- Only approved experiences may be used. A `skill_hypothesis` is not a resume source unless it is `user_confirmed` and links to an experience.
+- Register the follow-up work with `action propose` (`action_type: prepare`), so the resume step is visible in "what next".
 - Rewritten wording still requires `resume confirm --id <id> --human-confirmed`; nothing in the Twin counts as factual confirmation.
-- Report resume ID, version, SHA-256 and any wording still awaiting the user.
+- Report resume ID, version, SHA-256 and any wording still awaiting the user. Shared rules are in `AGENTS.md`.
