@@ -1,0 +1,4 @@
+# Codex loads project-level config only for trusted projects.
+# Default local safety posture. Do not grant unattended external access.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"

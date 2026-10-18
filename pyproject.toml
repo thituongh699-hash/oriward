@@ -1,0 +1,52 @@
+[project]
+name = "careeros-local"
+version = "0.2.0"
+description = "Career Twin Core: evidence-backed career agent with eight skills on top"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "CareerOS contributors" }]
+keywords = ["career", "job-search", "resume", "local-first", "sqlite", "agent", "codex"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business",
+]
+# No third-party runtime dependencies: the CLI is standard library only.
+dependencies = []
+
+# Fill these in before publishing (the project has no public URL yet).
+# [project.urls]
+# Homepage = "https://github.com/<your-account>/careeros"
+# Issues = "https://github.com/<your-account>/careeros/issues"
+
+[project.optional-dependencies]
+dev = ["ruff>=0.6"]
+
+[project.scripts]
+careeros = "careeros.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+license-files = ["LICENSE"]
+
+[tool.setuptools.packages.find]
+include = ["careeros*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+# Start with real-bug rules only; widening the rule set is a separate, reviewable change.
+select = ["E9", "F"]
