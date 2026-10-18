@@ -1,0 +1,11 @@
+# Normalize to LF in the repository so Windows and Linux checkouts agree.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF so they run without surprises.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.png binary
+*.jpg binary
+*.ico binary
