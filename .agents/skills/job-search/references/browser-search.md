@@ -28,10 +28,11 @@
 
 部分雇主招聘站（如 `*.jobs.feishu.cn` 飞书招聘）是 SPA：HTML 里没有岗位数据，`curl`/WebFetch 只能拿到空壳，列表接口的 `_signature` 绑定浏览器会话，直连无效。此时用本地渲染读取，不要猜接口：
 
-```bash
-msedge --headless=new --remote-debugging-port=9223 --remote-allow-origins=* --user-data-dir=<临时目录> about:blank &
+```text
 node scripts/read_rendered_page.mjs "https://<tenant>.jobs.feishu.cn/intern/?location=CT_xxx" page.json 14000
 ```
+
+这是可选的技术辅助路径。由 Agent 选择宿主可用的浏览器，在获准的隔离会话中准备 CDP 端点并通过 `CDP_BASE` 提供给脚本；不假设浏览器的可执行文件名或启动命令。没有该能力时使用正常页面读取或授权导入，主程序不要求安装这个辅助环境。
 
 输出包含可见文本和页面自身发出的 JSON 响应（标题、城市、description、requirement、publish_time），既能核对列表，也能拿到完整 JD。
 

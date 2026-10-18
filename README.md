@@ -1,6 +1,12 @@
-# CareerOS · Codex-first 求职工作台（v0.2.0 · Career Twin Core）
+# CareerOS · 面向在校生与应届生的 Agent 求职成长工作台（v0.2.0）
 
-CareerOS 把求职推理交给 Codex，把可复现的校验、版本和状态交给本地 Python CLI + SQLite。项目内 8 个 Skills 约束从经历发现、岗位采集、JD 分析、红蓝评审、简历改版到真实反馈复盘的流程。
+CareerOS 主要面向在校生与应届生：从“我还不知道自己能做什么”开始，让 Agent 随着一次次对话、课程项目、实习和求职反馈逐步了解你，把职业探索、学习提升、投递计划和面试准备接成一条可持续推进的路径。
+
+求职推理交给你选择的大模型 Agent，可复现的校验、版本和状态交给本地 Python CLI + SQLite。取得仓库后，在 Claude Code（CC）、WorkBuddy、豆包等 Agent 工具中加载项目并开始对话；Agent 负责读取项目规则、检查运行环境和执行本地命令。实际执行需要宿主开放文件和终端权限，各工具尚未逐一完成原生适配验证。
+
+你不需要先有一份漂亮简历或明确的职业答案。先从一段真实经历和一个能完成的小行动开始，逐步积累可核查的能力证据；Agent 的判断可以讨论、修订，不替你定义个人价值。项目内 8 个 Skills 约束从经历发现、岗位采集、JD 分析、红蓝评审、简历改版到真实反馈复盘的流程。
+
+第一次使用请看独立的 [用户入门手册](docs/USER_GUIDE.md)，其中包含环境准备、首次对话、学期与求职计划，以及换工具后如何继续。
 
 v0.2 的产品核心是 **Career Twin Core**：一个带来源、置信度和版本链的用户状态中枢，向 8 个 Skills 提供统一的读写接口与上下文摘要。它持续回答五个问题——我是谁、我可能成为谁、我现在在哪、下一步做什么、你凭什么这么认为。设计见 [docs/CAREER_TWIN_CORE_ARCHITECTURE.md](docs/CAREER_TWIN_CORE_ARCHITECTURE.md)。
 
@@ -8,7 +14,7 @@ v0.2 的产品核心是 **Career Twin Core**：一个带来源、置信度和版
 
 > **这个项目不会替你投简历，因为海投是负期望的。**
 >
-> 它是一张"投递前的桌面"，不是一台"投递机器"。投递量增加不等于机会增加：同一份简历投向几十个不匹配的岗位，消耗的是你的时间、招聘方的注意力，以及被系统标记为低质量申请的风险。所以这里只做那些真正提升单个投递期望值的事——把岗位要求拆开、把经历证据对齐、把简历版本钉死、把反馈记清楚——最后的提交动作永远由你本人在官方页面完成并确认。
+> 从认识自己到积累证据，从安排学习到准备投递，把每一步做得更清楚。还在探索时，先找到可以验证的方向；临近求职时，再结合真实岗位安排准备与投递。最后的提交动作由你本人在官方页面完成并确认。
 >
 > 相应地，系统不保存招聘账号密码、不模拟点击、不绕过验证码、不代发消息，也不提供"一键海投"。这类功能不是没做，是刻意不做。
 
@@ -16,7 +22,7 @@ v0.2 的产品核心是 **Career Twin Core**：一个带来源、置信度和版
 
 - [快速开始](#快速开始)
 - [当前招聘闭环](#当前招聘闭环)
-- [八个 Skills](#八个-skills)
+- [Skills](#skills)
 - [文档](#文档)
 - [本地数据](#本地数据)
 - [参与贡献](#参与贡献)
@@ -24,51 +30,30 @@ v0.2 的产品核心是 **Career Twin Core**：一个带来源、置信度和版
 
 ## 快速开始
 
-需要 Python 3.10+，无第三方运行时依赖（只用标准库）。
+1. 下载或克隆本仓库，把项目文件夹加载到你使用的 Agent 工具中。
+2. 允许 Agent 在该项目范围内读取文件和执行命令，然后发送下面这段话。
+3. 从一段真实经历开始；后续的资料保存、学习安排和投递跟进都由 Agent 按项目规则协助完成。
 
-```powershell
-# 可选：安装为命令。不装也能用，所有命令前加 python -m 即可
-python -m pip install -e .
-
-python -m careeros init            # 建库/迁移，输出 schema 版本
-python -m careeros twin status     # 健康检查与建议下一步
-python -m careeros context brief   # 五问摘要（有界、可钻取）
-python -m unittest discover -s tests -v
-python -m careeros brief           # 旧版计数摘要
+```text
+请读取这个项目的 AGENTS.md，按首次使用流程检查环境并初始化 CareerOS。
+我目前是[年级/毕业年份]，正在[探索方向/找实习/准备校招]。
+先按 career-discovery 从一段真实经历开始，一次问我两三个问题。
+请把事实、推断和未知分开，最后留下已保存的记录和一个我愿意完成的小行动。
 ```
 
-`init` 会自动创建 `data/private/`（该目录被 Git 忽略）。想先用虚构数据跑通流程，导入仓库内的示例记录：
-
-```powershell
-python -m careeros jobs import --csv data/examples/jobs.csv
-python -m careeros jobs card --id 1
-```
-
-`data/examples/` 下全部为虚构记录，可直接使用；不要把真实简历或岗位库提交进仓库。
-
-要在不碰真实数据库、不开网络、不投递的情况下查看完整 B→A 虚构闭环，请指定一个尚不存在的输出目录：
-
-```powershell
-python scripts/demo_hiring_loop.py --output outputs/hiring-loop-demo-local
-```
-
-脚本创建隔离 SQLite、原版/修订版简历、18 次独立 CLI 调用记录和 `REPORT.md`。演示的岗位、候选人、反馈和评级全部虚构；它验证工作流接线，不验证真实招聘效果。
-
-在 Codex 中先要求其读取 `AGENTS.md`，再按意图调用项目 Skill，例如：
-
-> 使用 `$job-analysis` 分析岗位 ID 1。先取分析 packet，由你完成语义化 JD 拆解和证据映射；不要把 CLI draft 当作自动评分。
+主程序只使用 Python 3.10+ 标准库，不要求先安装项目或额外服务。Agent 会选择宿主可用的解释器，按需创建本地数据库；如果确实缺少运行时或执行权限，会报告具体缺项。完整流程见 [用户入门手册](docs/USER_GUIDE.md)。下面的 CLI 命令是供 Agent 执行和开发者核查的操作参考。
 
 ## 当前招聘闭环
 
 ```text
-公开来源/API 或授权导出 -> 岗位快照 -> Codex 语义分析 -> 证据约束简历
+公开来源/API 或授权导出 -> 岗位快照 -> Agent 语义分析 -> 证据约束简历
 -> 红方七阶段审查 -> 蓝方 finding-to-action -> 改版与真人事实确认
 -> 独立复审 -> 人工投递 -> 真实/模拟/假设反馈分流 -> 下一轮行动
 ```
 
 ### 1. 岗位来源与快照
 
-```powershell
+```text
 python -m careeros jobs import --csv data/private/jobs.csv
 python -m careeros jobs import --json data/private/jobs.json
 python -m careeros jobs sync --provider greenhouse --board BOARD_SLUG --company "Company" --limit 100
@@ -84,7 +69,7 @@ python -m careeros jobs snapshots --id 1
 
 中国职位搜索与本地节省 token 的默认流程：
 
-```powershell
+```text
 python -m careeros jobs channels
 python -m careeros jobs search --provider zhiye --query "产品经理" --location "上海" --limit 5
 python -m careeros leads fetch --id 1
@@ -101,7 +86,7 @@ python -m careeros --output data/private/analysis-draft.json analysis draft --jo
 
 一个岗位的发布时间、JD、各平台招聘渠道、投递渠道、日程节点、状态和反馈，统一在一条记录里查看：
 
-```powershell
+```text
 python -m careeros jobs channels                          # 每个渠道能做什么、能否作为投递渠道
 python -m careeros jobs route --provider official --query "产品经理" --location "上海"
 python -m careeros jobs group                             # 同一岗位在多个平台的归并结果
@@ -116,17 +101,17 @@ python -m careeros application agenda --days 30
 
 ### 2. JD 分析
 
-```powershell
+```text
 python -m careeros analysis draft --job-id 1
 python -m careeros analysis packet --job-id 1
 python -m careeros analysis save --file data/private/analysis-1.json
 ```
 
-`analysis draft` 只是逐行抽取的 `PRELIMINARY_UNKNOWN_MATCHES` 模板，所有匹配初始为 `unknown`。Codex 必须读取 packet，按原 JD 精确引文拆成 `hard_gate|core|preferred`，逐项映射经批准的经历 ID，并把公司资料保存为“事实 + 推断 + URL + 检索日期”。只有检查完整 JD 后才把 `coverage_confirmed` 设为 `true`。`analysis save` 校验这些映射并计算 `explore|apply|upskill|skip`，不替代语义判断。
+`analysis draft` 只是逐行抽取的 `PRELIMINARY_UNKNOWN_MATCHES` 模板，所有匹配初始为 `unknown`。Agent 必须读取 packet，按原 JD 精确引文拆成 `hard_gate|core|preferred`，逐项映射经批准的经历 ID，并把公司资料保存为“事实 + 推断 + URL + 检索日期”。只有检查完整 JD 后才把 `coverage_confirmed` 设为 `true`。`analysis save` 校验这些映射并计算 `explore|apply|upskill|skip`，不替代语义判断。
 
 ### 3. 简历与七阶段红蓝评审
 
-```powershell
+```text
 python -m careeros resume build --job-id 1 --experience-ids 1,2 --headline "目标岗位"
 python -m careeros review packet --resume-id 1
 python -m careeros review save --file data/private/review-1.json
@@ -139,7 +124,7 @@ CLI 根据已审核的结构化输入计算结果：A 表示需求覆盖已确�
 
 ### 4. 反馈、改版、确认与复审
 
-```powershell
+```text
 python -m careeros feedback save --file data/private/feedback-1.json
 python -m careeros feedback list --job-id 1
 python -m careeros feedback plan --job-id 1
@@ -155,7 +140,7 @@ python -m careeros feedback resolve --id 1 --review-id 2 --note "已按反馈改
 
 ### 5. 投递边界
 
-```powershell
+```text
 python -m careeros application prepare --job-id 1 --resume-id 2
 # 用户自行在官方页面提交，并明确确认成功后：
 python -m careeros application record --id 1 --status SUBMITTED --human-confirmed --note "User confirmed actual submission"
@@ -163,9 +148,11 @@ python -m careeros application record --id 1 --status SUBMITTED --human-confirme
 
 上述 record 只记账，不向网站发送任何内容。不得把个人经历、简历或反馈上传给第三方服务，除非用户针对该服务、用途和内容作出明确授权。
 
-这也是"不会替你投简历"的具体含义：这里没有 submit API，没有浏览器自动化点击，没有批量投递队列。`--human-confirmed` 只用来记录你已经真实完成的一次投递，不是用来让系统替你投。海投在期望值上是负的——重复投递同一岗位、跨平台重复申请、投明显不匹配的岗位，都会降低而不是提高命中率；系统会把同一岗位的多平台来源归并并给出 `already_applied_in_group` 提示，但**最终判断仍然交给你**。
+这里没有 submit API、自动点击投递或批量投递队列。`--human-confirmed` 只用来记录你已经真实完成的一次投递。系统会把同一岗位的多平台来源归并并给出 `already_applied_in_group` 提示，最终判断由你作出。
 
-## 八个 Skills
+## Skills
+
+八个职业工作流，加一个按需使用的文档交付技能。PDF/DOCX 生成使用宿主已有运行时或 `documents` 可选依赖，不影响核心 CLI 的轻量启动。
 
 | Skill | 负责内容 |
 | --- | --- |
@@ -177,10 +164,12 @@ python -m careeros application record --id 1 --status SUBMITTED --human-confirme
 | `application-assistant` | 本地申请包、人工投递和精确版本绑定 |
 | `learning-planner` | 把实质性缺口转为可验收证据 |
 | `interview-coach` | 公司资料、七阶段准备、模拟反馈 |
+| `document-export` | 把已生成的简历或审核后的职业文档转成 DOCX/PDF，只做格式转换，并检查渲染后的页面 |
 
 ## 文档
 
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md)：Codex 与确定性 CLI 的责任边界
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md)：Agent 与确定性 CLI 的责任边界
+- [USER_GUIDE.md](docs/USER_GUIDE.md)：面向在校生与应届生的完整入门路径和不同 Agent 工具的接入方式
 - [DATA_MODEL.md](docs/DATA_MODEL.md)：输入、版本、评审和反馈契约
 - [WORKFLOWS.md](docs/WORKFLOWS.md)：端到端操作流程
 - [SECURITY.md](docs/SECURITY.md)：隐私、外部来源和人工确认
@@ -204,7 +193,7 @@ python -m careeros application record --id 1 --status SUBMITTED --human-confirme
 
 - 开发约定与提交前检查见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 - 安全问题、隐私边界与漏洞上报见 [SECURITY.md](SECURITY.md)。
-- 本项目不收集、不上传任何用户数据；请不要在 issue、PR 或讨论区粘贴真实简历、真实岗位库或招聘账号凭证。需要复现问题时，用 `data/examples/` 的虚构记录或自行脱敏后的最小样例。
+- 本地 CLI 不调用模型服务；你选择的 Agent 在分析材料时可能将读取的内容交给其模型服务，具体以该工具的数据处理方式和你的授权为准。请不要在 issue、PR 或讨论区粘贴真实简历、真实岗位库或招聘账号凭证。需要复现问题时，用虚构或脱敏的最小样例。
 - 改动后请跑 `python -m unittest discover -s tests -v`，并在 PR 描述里说明改了什么、为什么、验证方式。
 
 ## 许可证

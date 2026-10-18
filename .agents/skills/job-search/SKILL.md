@@ -5,6 +5,8 @@ description: Search BOSS and Zhilian through the connected browser when direct a
 
 # Job search
 
+Primarily serve students and recent graduates. Start from the user's exploration stage, graduation timing, internship availability and location constraints. Verify campus/graduate eligibility, attendance requirements and deadlines from current sources; never assume them from the word "entry-level". Keep the initial batch small enough for the user's preparation capacity.
+
 1. Reuse the user's stated role, seniority, location and exclusions. Ask only for material missing preferences; a connectivity demo is not a personal recommendation.
 2. Prefer local commands for all deterministic work. For China jobs, inspect `jobs channels`, then run `python -m careeros jobs search --provider zhiye --query "<role>" --location "<city>" --limit 10`. This searches one public result page, caches it, and persists small leads; it does not establish current vacancy availability. `leads list` reuses saved leads. Fetch a selected complete JD with `leads fetch --id <lead-id>`, then shortlist saved jobs using `jobs shortlist --query "<keywords separated by spaces>" --location "<city>" --exclude "<terms>" --limit 10`. Lexical scores are not candidate-fit judgments.
 3. BOSS/Zhilian are required browser channels when direct access fails. Run `jobs search --provider boss|zhilian --query "<role>" --location "<city>"`, then actually execute the connected-browser workflow in [references/browser-search.md](references/browser-search.md). Do not stop at `executed=false`, a search plan or indexed links. Preserve login/verification/error state for recovery. Import visible leads with `discovery_method:browser_ui`; promote only after reading the complete individual JD. Public search indexes are supplementary. Follow [references/job-import-contract.md](references/job-import-contract.md).
@@ -12,7 +14,7 @@ description: Search BOSS and Zhilian through the connected browser when direct a
 
    **Employer official site (`official`)** — the only channel that can both prove the employer published the vacancy and point at the employer's own submission entry. It reads exactly one public posting page:
 
-   ```powershell
+   ```text
    python -m careeros jobs route --provider official --query "<role>" --location "<city>"
    python -m careeros official plan --company "<name>" --query "<role>"
    python -m careeros official fetch --url "https://careers.<company>.com/jobs/123" --company "<name>"
@@ -20,9 +22,9 @@ description: Search BOSS and Zhilian through the connected browser when direct a
 
    `fetch` requires a single-vacancy URL (not a listing page), parses schema.org `JobPosting` when present and falls back to page text; it refuses non-HTTPS, IP-literal, credential-bearing, non-443 or internal hosts, and stops on robots disallow or unreadable JD. Use `--record-only` to inspect the record before importing. Never follow the apply button.
 
-   Liepin is an **optional extension that is off by default** (`careeros/extras/liepin.py`); the bundled `scripts/liepin.ps1` sets `CAREEROS_ENABLE_LIEPIN=1` for its own run. Without that switch, `jobs search --provider liepin` returns `EXTENSION_DISABLED` and sends nothing — report that state as "not enabled", never as "no jobs found", and never enable it on the user's behalf without their explicit instruction. When enabled: Liepin's auth page currently provides a CLI, not a standard MCP server URL, so use `scripts/liepin.ps1 -Query <role> -Location <city>` after the user locally configures credentials with `-Setup`. See `docs/LIEPIN_INTEGRATION.md`. The adapter only searches; it never reads resumes or applies. `AUTH_REQUIRED` and `RESPONSE_REQUIRES_VALIDATION` are not successful searches. Inspect the saved response business status/schema before importing; never echo credentials or raw server errors. Keep BOSS/Zhilian browser channels active.
+   Liepin is an **optional extension that is off by default** (`careeros/extras/liepin.py`). Without `CAREEROS_ENABLE_LIEPIN=1`, `jobs search --provider liepin` returns `EXTENSION_DISABLED` and sends nothing — report that state as "not enabled", never as "no jobs found", and never enable it on the user's behalf without their explicit instruction. When explicitly enabled, the adapter accepts credentials from `LIEPIN_USER_TOKEN`; `scripts/liepin.ps1` is an optional Windows DPAPI helper, not a prerequisite for the Python adapter or the main workflow. Follow `docs/LIEPIN_INTEGRATION.md` for credential handling; do not treat an auth web page as an MCP endpoint. The adapter only searches; it never reads resumes or applies. `AUTH_REQUIRED` and `RESPONSE_REQUIRES_VALIDATION` are not successful searches. Inspect the saved response business status/schema before importing; never echo credentials or raw server errors. Keep BOSS/Zhilian browser channels active when supported by the host.
 
-   ```powershell
+   ```text
    python -m careeros jobs sync --provider greenhouse --board <slug> --company "<name>" --limit 100
    python -m careeros jobs sync --provider lever --board <slug> --company "<name>" --limit 100
    ```

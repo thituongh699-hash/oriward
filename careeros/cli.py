@@ -1,4 +1,4 @@
-"""CareerOS commands for use by the user or Codex skill workflows."""
+"""CareerOS commands for use by the user or Agent skill workflows."""
 from __future__ import annotations
 
 import argparse
@@ -35,7 +35,7 @@ REVISE_FIELDS = ("id", "value", "confidence", "explanation", "source_type", "sou
 GOAL_FIELDS = ("title", "direction_id", "priority", "status", "target_date", "success_criteria",
                "time_budget_hours", "owner", "rationale")
 ACTION_FIELDS = ("title", "source_type", "source_id", "action_type", "due_at", "priority",
-                 "depends_on", "suggestion_reason", "requires_approval")
+                 "depends_on", "suggestion_reason", "requires_approval", "effort_hours")
 SIGNAL_FIELDS = ("target_type", "target_id", "feedback_type", "reason", "source", "scope")
 
 
@@ -88,9 +88,10 @@ def run(argv=None):
     x.add_argument("--job-id", type=int, required=True); x.add_argument("--status", required=True)
     x.add_argument("--reason", default=""); x.add_argument("--priority", type=int)
     x.add_argument("--next-review-at", default=None)
+    x.add_argument("--goal-id", type=int, help="Career goal this opportunity serves")
     x = pipe_sub.add_parser("ensure")
     x.add_argument("--job-id", type=int, required=True); x.add_argument("--status", default="discovered")
-    x.add_argument("--priority", type=int)
+    x.add_argument("--priority", type=int); x.add_argument("--goal-id", type=int)
     for domain, has_add in (("profile", False), ("experience", True), ("career", True), ("jobs", False), ("analysis", True), ("resume", False), ("application", False), ("learning", True), ("interview", True), ("review", False), ("feedback", False), ("leads", False), ("official", False)):
         a = sub.add_parser(domain)
         actions = a.add_subparsers(dest="action", required=True)
@@ -207,7 +208,7 @@ def run(argv=None):
     ctx = sub.add_parser("context", help="Bounded user context assembled from Career Twin Core")
     ca = ctx.add_subparsers(dest="action", required=True)
     x = ca.add_parser("brief", help="Five-question session brief with IDs for drill-down")
-    x.add_argument("--json", action="store_true", dest="as_json"); x.add_argument("--max-chars", type=int, default=3200)
+    x.add_argument("--max-chars", type=int, default=3200)
     for name in ("inspect", "why", "history"):
         x = ca.add_parser(name); x.add_argument("--assertion-id", type=int, required=True)
 
@@ -254,6 +255,8 @@ def run(argv=None):
     x.add_argument("--id", type=int, required=True); x.add_argument("--subject", default="work_conditions")
     x.add_argument("--predicate", default="hard_constraint"); x.add_argument("--assertion-type", default="constraint")
     x.add_argument("--confidence", default="medium"); x.add_argument("--value")
+    x.add_argument("--human-confirmed", action="store_true",
+                   help="Required: only the user can turn one reaction into a standing constraint")
 
     reflection = sub.add_parser("reflection", help="Periodic review that only proposes changes")
     ra = reflection.add_subparsers(dest="action", required=True)
@@ -262,6 +265,7 @@ def run(argv=None):
     x = ra.add_parser("decide")
     x.add_argument("--id", type=int, required=True)
     x.add_argument("--status", required=True, choices=["approved", "partially_approved", "rejected"])
+    x.add_argument("--accept", help="Comma-separated proposal indexes the user approved, e.g. 0,2")
     x.add_argument("--note", default="")
 
     twin = sub.add_parser("twin", help="Career Twin Core health and legacy bridge")
@@ -295,9 +299,11 @@ def run(argv=None):
             p(core_pipeline.show(args.job_id))
         elif args.action == "update":
             p(core_pipeline.update(args.job_id, status=args.status, reason=args.reason,
-                                   priority=args.priority, next_review_at=args.next_review_at))
+                                   priority=args.priority, next_review_at=args.next_review_at,
+                                   goal_id=args.goal_id))
         else:
-            p(core_pipeline.ensure(args.job_id, status=args.status, priority=args.priority))
+            p(core_pipeline.ensure(args.job_id, status=args.status, priority=args.priority,
+                                   goal_id=args.goal_id))
         return
     if args.domain == "context":
         if args.action == "brief":
@@ -341,7 +347,7 @@ def run(argv=None):
         else:
             p(core_signals.promote(args.id, subject=args.subject, predicate=args.predicate,
                                    assertion_type=args.assertion_type, confidence=args.confidence,
-                                   value=args.value))
+                                   value=args.value, human_confirmed=args.human_confirmed))
         return
     if args.domain == "reflection":
         if args.action == "weekly":
@@ -349,7 +355,7 @@ def run(argv=None):
         elif args.action == "list":
             p(core_reflection.list_runs())
         else:
-            p(core_reflection.decide(args.id, status=args.status, note=args.note))
+            p(core_reflection.decide(args.id, status=args.status, note=args.note, accepted=args.accept))
         return
     if args.domain == "twin":
         if args.action == "status":

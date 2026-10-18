@@ -2,6 +2,28 @@
 
 本文列出应运行的检查，不把未在当前环境执行的检查写成已通过。
 
+## 2026-10-18 导出收敛为纯格式转换
+
+- `document-export` 现在只做格式转换：以已登记简历的当前内容为准，不写回任何记录；待事实确认的改版仍被拒绝。
+- 结构化输入不得冒充简历：含 `个人简介/相关经历/教育经历/实习经历/工作经历/项目经历` 等标题时拒绝导出，必须走 `--resume-id`。
+- 测试相应调整：移除 2 项旧用例、新增“结构化输入不得冒充简历”，含文档依赖的全量测试 **154/154 通过**。
+
+## 2026-10-18 文档导出技能验收
+
+- 新增 `document-export` 后，Windows 文档运行时（Python 3.12.14，含可选生成/提取库）全量 **144/144 通过**，其中 12 项是导出行为测试。新 Skill 的 `quick_validate.py` 验证通过。
+- Ubuntu Linux 的核心运行时全量执行 144 项，其中 140 项通过、4 项因未安装可选文档依赖跳过。不能将其表述为 Linux 文档生成已实测通过；三个系统的可选后端 CI 已配置，尚待 Actions 执行。
+- 测试覆盖：已登记简历的内容绑定、待确认改版拒绝、多个经历的归属顺序、未知结构拒绝、字形缺失拒绝、HTML 字符按原文显示、已有/并发产生的文件不覆盖，以及长表格分页。
+- 虚构中文计划已生成 DOCX/PDF：PDF 3 页，经 Poppler 渲染并逐页检查，中文与特殊字符显示、文本提取和长表格续页正常；修复了标题与整张长表绑定导致的大片留白。
+- DOCX 可重新打开，内容检查通过；规范 `render_docx.py` 因本机缺少 LibreOffice `soffice.exe` 失败，**DOCX 视觉验收未完成**。不将 PDF 的渲染结果当作 DOCX 的排版证据。导出 manifest 保持 `GENERATED_PENDING_VISUAL_REVIEW`，逐格式 QA 记录位于忽略目录 `outputs/document-export-qa-20261018/qa.json`。
+- 发现既有缓存测试的文件修改时间在 NTFS 上可比 Python 微秒时钟略快；将缓存命中夹具固定在有效 TTL 内后完成全量回归，没有放宽生产缓存判断。
+
+## 2026-10-18 启动与可移植性验证
+
+- Windows / Python 3.14.2 与 WSL Ubuntu Linux / Python 3.14.4：分别运行全量单元测试，均为 **132/132 通过**。
+- 两个环境均在临时数据库中完成 `doctor`、`init`、`twin status`、`context brief`，以及 18 次独立 CLI 调用的虚构招聘闭环；未联网、未投递、未修改真实资料。
+- CI 已配置 Linux 三个 Python 版本及 Windows、macOS 作业；YAML 结构已校验。该配置尚未在 GitHub Actions 执行，本轮也未在 macOS 本机实测。
+- Bash 辅助脚本仅做语法检查，Windows 凭证辅助脚本仅验证本地未配置状态；两者都不是首次使用主流程的前提。
+
 ## 2026-10-18 渠道补齐与统一记录增量验收
 
 - `python -m unittest discover -s tests -v`：105/105 通过；新增 `tests/test_tracking.py` 8 项、`tests/test_official.py` 7 项。
@@ -35,7 +57,7 @@
 
 ## 自动化命令
 
-```powershell
+```text
 python -m unittest discover -s tests -v
 ```
 
@@ -53,19 +75,13 @@ python -m unittest discover -s tests -v
 
 Skill 结构验证：
 
-```powershell
-# $validator 指向你本地 skill-creator 的 quick_validate.py（路径因环境而异，勿写死）
-$validator = '<你的 skill-creator 路径>\scripts\quick_validate.py'
-Get-ChildItem .agents\skills -Directory | ForEach-Object {
-  python $validator $_.FullName
-}
-```
+由 Agent 使用宿主已有的 Skill 校验器（例如其 `quick_validate.py`），逐一校验 `.agents/skills/` 中的八个技能。校验器属于宿主开发工具，不是主程序依赖；其路径和调用方式由 Agent 根据环境确定，不在项目里硬编码。
 
 该 validator 只证明 YAML/frontmatter 和基本结构，不证明工作流判断正确。
 
 ## 隔离端到端演示
 
-```powershell
+```text
 python scripts/demo_hiring_loop.py --output outputs/hiring-loop-demo-local
 ```
 

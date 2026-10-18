@@ -197,7 +197,7 @@ def browser_plan(query, location="", provider="boss", limit=10):
         raise ValidationError("Browser workflow currently supports boss and zhilian")
     return {"provider": provider, "query": query.strip(), "location": location.strip(), "limit": limit,
             "executed": False, "status": "BROWSER_ACTION_REQUIRED", "entry_url": CHANNELS[provider]["home"],
-            "executor": "Codex connected browser UI", "steps": [
+            "executor": "Agent connected browser UI", "steps": [
                 "复用已连接用户浏览器，读取当前页面；在站内搜索框填关键词并选择城市，核对实际筛选条件。",
                 "只读岗位卡片；点击选中岗位核对详情 URL。只提取页面可见职位信息，不读取 cookie/隐藏接口。",
                 "登录/验证码/空白错误页记录为待恢复状态并保留标签，不当作没有职位，也不放弃渠道。",

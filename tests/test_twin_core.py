@@ -112,6 +112,48 @@ class TwinCoreTest(unittest.TestCase):
         live = assertions.list_assertions(assertion_type="constraint")
         self.assertEqual(len(live), 2)
 
+    def test_superseded_claim_is_history_only(self):
+        first = assertions.propose(
+            subject="user", predicate="preferred_city", value={"text": "上海"},
+            assertion_type="preference", source_type="user_message")
+        second = assertions.revise(first["id"], value={"text": "杭州"}, reason="用户修正")
+        for action in (lambda: assertions.confirm(first["id"]),
+                       lambda: assertions.dispute(first["id"], "再想想"),
+                       lambda: assertions.retract(first["id"], "改主意")):
+            with self.assertRaises(ValueError):
+                action()
+        live = assertions.list_assertions(subject="user")
+        self.assertEqual([row["id"] for row in live], [second["id"]])
+        self.assertEqual(assertions.get(second["id"])["epistemic_status"], "user_stated")
+
+    def test_hedged_self_statement_stays_uncertain(self):
+        claim = assertions.propose(
+            subject="user", predicate="core_value", value={"text": "我可能比较看重自主性吧"},
+            assertion_type="value", source_type="user_message", confidence="low")
+        brief = context.brief()
+        self.assertEqual(brief["who_am_i"]["values"], [])
+        self.assertIn(claim["id"], [item["assertion_id"] for item in brief["uncertainties"]])
+        # Confirming the wording is what turns it into a stable claim.
+        assertions.confirm(claim["id"])
+        self.assertEqual([item["claim"] for item in context.brief()["who_am_i"]["values"]],
+                         ["我可能比较看重自主性吧"])
+
+    def test_direction_evidence_uses_derived_from(self):
+        experience_id = s.add_object("experiences", {
+            "event": "课程项目", "actions": ["做报表"], "outcomes": [],
+            "evidence": [{"claim": "做报表", "source": "自述", "status": "user_confirmed"}],
+            "approved_for_resume": True,
+        }, ["event", "actions", "outcomes", "evidence", "approved_for_resume"])
+        claim = assertions.propose(
+            subject="career:data-pm", predicate="direction_hypothesis",
+            value={"direction": "数据产品经理"}, assertion_type="career_hypothesis",
+            source_type="model_inference",
+            links=[{"ref_type": "experience", "ref_id": experience_id, "relation": "derived_from"}])
+        direction = next(item for item in context.brief()["who_could_i_become"]["directions"]
+                         if item["hypothesis_id"] == claim["id"])
+        self.assertEqual(len(direction["support"]), 1)
+        self.assertIn("课程项目", direction["support"][0])
+
     # -- feedback ----------------------------------------------------------
     def test_feedback_is_case_scoped_until_promoted(self):
         job_id = sources.import_records([{
@@ -122,13 +164,20 @@ class TwinCoreTest(unittest.TestCase):
                             reason="常驻出差")
         self.assertEqual(added["scope"], "this_case")
         self.assertTrue(assertions.list_assertions(assertion_type="constraint") == [])
-        promoted = signals.promote(added["id"])
+        with self.assertRaises(ValueError):
+            signals.promote(added["id"])
+        promoted = signals.promote(added["id"], human_confirmed=True)
         constraints = assertions.list_assertions(assertion_type="constraint")
         self.assertEqual(len(constraints), 1)
         self.assertEqual(constraints[0]["epistemic_status"], "user_stated")
         self.assertEqual(constraints[0]["id"], promoted["assertion_id"])
         with self.assertRaises(ValueError):
             signals.promote(added["id"])
+
+    def test_signal_must_point_at_a_stored_object(self):
+        with self.assertRaises(NotFoundError):
+            signals.add(target_type="job", target_id=999999, feedback_type="not_interested",
+                        reason="不存在的岗位")
 
     # -- opportunity pipeline ---------------------------------------------
     def test_shortlist_without_resume_or_application(self):
@@ -140,7 +189,7 @@ class TwinCoreTest(unittest.TestCase):
         pipeline.update(job_id, status="shortlisted", reason="方向契合")
         card = pipeline.show(job_id)
         self.assertEqual(card["pipeline"]["discovery_status"], "shortlisted")
-        self.assertIsNone(card["current_stage"])
+        self.assertEqual(card["current_stage"], "discovery:shortlisted")
         self.assertEqual(card["applications"], [])
         self.assertEqual(pipeline.counts(), {"shortlisted": 1})
         with self.assertRaises(ValueError):
@@ -209,13 +258,61 @@ class TwinCoreTest(unittest.TestCase):
             self.assertIn("urgency", row["factors"])
             self.assertTrue(row["why"])
 
+    def test_goal_links_job_and_action_ranking(self):
+        goal = goals.add(title="半年内转数据产品", priority=1, status="active")
+        job_id = sources.import_records([{
+            "source": "zhiye", "source_id": "j7", "title": "数据产品经理", "company": "虚构科技",
+            "description": "负责数据产品。", "url": "https://example.com/j/7",
+        }])["job_ids"][0]
+        pipeline.ensure(job_id, status="shortlisted", goal_id=goal["id"])
+        linked = actions.propose(title="补一份需求文档", source_type="job", source_id=job_id,
+                                 action_type="prepare", priority=4, suggestion_reason="目标缺口")
+        control = actions.propose(title="随便看看", source_type="core", action_type="other",
+                                  priority=4, suggestion_reason="对照")
+        ranked = {row["id"]: row for row in actions.list_actions()["ranked"]}
+        self.assertEqual(ranked[linked["id"]]["factors"]["goal_priority"], 15)
+        self.assertIn("服务目标", ranked[linked["id"]]["why"])
+        self.assertGreater(ranked[linked["id"]]["score"], ranked[control["id"]]["score"])
+        self.assertEqual(pipeline.show(job_id)["goal"]["title"], "半年内转数据产品")
+        self.assertEqual(context.brief()["where_i_am_now"]["active"][0]["goal"], "半年内转数据产品")
+
+    def test_effort_lowers_ranking_of_expensive_work(self):
+        quick = actions.propose(title="改一版简历标题", source_type="core", action_type="prepare",
+                                priority=3, suggestion_reason="低成本", effort_hours=1)
+        heavy = actions.propose(title="从零做一个作品集", source_type="core", action_type="prepare",
+                                priority=3, suggestion_reason="高成本", effort_hours=20)
+        ranked = {row["id"]: row for row in actions.list_actions()["ranked"]}
+        self.assertGreater(ranked[quick["id"]]["score"], ranked[heavy["id"]]["score"])
+        self.assertIn("预计投入 1 小时", ranked[quick["id"]]["why"])
+
+    def test_cancelled_prerequisite_keeps_successor_waiting(self):
+        prerequisite = actions.propose(title="前置确认", source_type="goal", action_type="confirm",
+                                       priority=1, suggestion_reason="前置")
+        follow = actions.propose(title="后续准备", source_type="goal", action_type="prepare",
+                                 priority=1, suggestion_reason="依赖前置",
+                                 depends_on=[prerequisite["id"]])
+        with connect() as conn:
+            conn.execute("UPDATE next_actions SET status='cancelled' WHERE id=?", (prerequisite["id"],))
+        listed = actions.list_actions()
+        self.assertNotIn(follow["id"], [row["id"] for row in listed["ranked"]])
+        waiting = {row["id"]: row for row in listed["waiting"]}
+        self.assertIn(follow["id"], waiting)
+        self.assertIn("已取消", waiting[follow["id"]]["why"])
+
+    def test_blocked_action_cannot_be_completed(self):
+        created = actions.propose(title="等导师回复", source_type="goal", action_type="prepare",
+                                  priority=2, suggestion_reason="需要推荐信")
+        actions.block(created["id"], "等导师回复")
+        with self.assertRaises(ValueError):
+            actions.complete(created["id"], human_confirmed=True)
+
     # -- context -----------------------------------------------------------
     def test_brief_is_bounded_and_traceable(self):
         for index in range(20):
             assertions.propose(
                 subject=f"skill:tool{index}", predicate="has_skill",
                 value={"skill": f"工具{index}"}, assertion_type="skill_hypothesis",
-                source_type="user_message", confidence="low")
+                source_type="user_message", confidence="high")
         brief = context.brief(max_chars=2000)
         rendered = json.dumps(brief, ensure_ascii=False)
         self.assertLessEqual(len(rendered), 2400)
@@ -260,7 +357,7 @@ class TwinCoreTest(unittest.TestCase):
             second = migrations.apply(conn, Path(os.environ["CAREEROS_DB"]))
             self.assertEqual(second["applied"], [])
             self.assertGreaterEqual(migrations.current_version(conn), 2)
-        self.assertIn(first["to"], (1, 2))
+        self.assertIn(first["to"], (1, 2, 3))
 
     def test_fresh_database_creates_no_backup(self):
         # A brand-new empty database has nothing worth restoring.
@@ -314,8 +411,12 @@ class TwinCoreTest(unittest.TestCase):
         self.assertEqual(direction[0]["epistemic_status"], "inferred")
 
     def test_reflection_only_proposes(self):
-        for index in range(2):
-            signals.add(target_type="job", target_id=index + 1, feedback_type="not_interested",
+        job_id = sources.import_records([{
+            "source": "zhiye", "source_id": "j6", "title": "运营专员", "company": "虚构科技",
+            "description": "运营。", "url": "https://example.com/j/6",
+        }])["job_ids"][0]
+        for _ in range(2):
+            signals.add(target_type="job", target_id=job_id, feedback_type="not_interested",
                         reason="通勤时间太长")
         run = reflection.weekly()
         kinds = {proposal["kind"] for proposal in run["proposals"]}
@@ -324,9 +425,26 @@ class TwinCoreTest(unittest.TestCase):
         self.assertEqual(assertions.list_assertions(assertion_type="constraint"), [])
         self.assertEqual(reflection.list_runs()[0]["id"], run["run_id"])
 
+    def test_reflection_decision_keeps_per_item_detail(self):
+        job_id = sources.import_records([{
+            "source": "zhiye", "source_id": "j8", "title": "运营专员", "company": "虚构科技",
+            "description": "运营。", "url": "https://example.com/j/8",
+        }])["job_ids"][0]
+        for reason in ("通勤时间太长", "常驻出差"):
+            for _ in range(2):
+                signals.add(target_type="job", target_id=job_id, feedback_type="not_interested",
+                            reason=reason)
+        run = reflection.weekly()
+        self.assertEqual(len(run["proposals"]), 2)
+        decided = reflection.decide(run["run_id"], status="approved", accepted=[0])
+        self.assertEqual(decided["status"], "partially_approved")
+        stored = reflection.list_runs()[0]
+        self.assertEqual(stored["approved_updates"]["accepted"], [0])
+        self.assertEqual(len(stored["approved_updates"]["items"]), 1)
+
     def test_status_reports_health(self):
         status = twin.status()
-        self.assertEqual(status["schema_version"], 2)
+        self.assertEqual(status["schema_version"], 3)
         self.assertIn("jobs_without_pipeline", status["health"])
 
 

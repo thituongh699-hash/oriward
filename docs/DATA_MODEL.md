@@ -39,7 +39,7 @@ Greenhouse/Lever adapter 还会保留 provider 字段和原始 HTML，同时把 
 
 ## 结构化分析 JSON
 
-先用 `analysis draft` 获取模板，再由 Codex 根据 `analysis packet` 完整填写：
+先用 `analysis draft` 获取模板，再由 Agent 根据 `analysis packet` 完整填写：
 
 ```json
 {
@@ -74,7 +74,7 @@ Greenhouse/Lever adapter 还会保留 provider 字段和原始 HTML，同时把 
 - `quote` 必须是当前 JD 的精确子串；不要改写后冒充原文。
 - `kind` 为 `hard_gate|core|preferred`；`match` 为 `met|gap|unknown`。
 - 只有 `met` 可带 `experience_ids`，且每个经历必须获准进入简历并有非空的 `user_confirmed|document_verified` 证据。
-- `coverage_confirmed=true` 只表示 Codex 已检查完整 JD 并确认 requirements 覆盖完整，不表示候选人匹配。
+- `coverage_confirmed=true` 只表示 Agent 已检查完整 JD 并确认 requirements 覆盖完整，不表示候选人匹配。
 - `company_context` 每项都把可核查事实和推断分开，并保留 URL、日期和 availability。
 - recommendation/confidence 由保存逻辑计算；输入中的同名结论不是权威。
 
@@ -172,7 +172,7 @@ CLI 拒绝输入 `grade/status/reasons`，并校验简历文件哈希、analysis
 }
 ```
 
-每个 `source_texts` 必须逐字存在于同一经历的 action、outcome 或 evidence claim。重写后的 `text` 只要不是原事实逐字复用，就标为 pending，必须让本人核对实际含义后运行 `resume confirm --id ID --human-confirmed`。确认不是形式步骤，Codex 不能代替用户作答。
+每个 `source_texts` 必须逐字存在于同一经历的 action、outcome 或 evidence claim。重写后的 `text` 只要不是原事实逐字复用，就标为 pending，必须让本人核对实际含义后运行 `resume confirm --id ID --human-confirmed`。确认不是形式步骤，Agent 不能代替用户作答。
 
 ## 申请状态
 
@@ -188,7 +188,7 @@ READY_FOR_USER -> SUBMITTED -> INTERVIEW -> OFFER -> ACCEPTED
 
 `application_events` 的每次状态流转额外记录 `from_status`、`to_status`、`human_confirmed` 与 `evidence_ref`，使 `applications.status` 成为可由事件重建的投影。
 
-## Career Twin Core（schema v2）
+## Career Twin Core（schema v3）
 
 结构变更由 `careeros/migrations.py` 的 `MIGRATIONS` 序列管理，记录于 `schema_migrations`；首次升级非空库前写出 `careeros.sqlite3.bak-v<旧版本>-<时间戳>`。完整设计见 [CAREER_TWIN_CORE_ARCHITECTURE.md](CAREER_TWIN_CORE_ARCHITECTURE.md)。
 
@@ -198,8 +198,8 @@ READY_FOR_USER -> SUBMITTED -> INTERVIEW -> OFFER -> ACCEPTED
 | `assertion_links` | `assertion_id`、`ref_type`、`ref_id`、`relation` | `relation ∈ supports/contradicts/derived_from/about`；Why 维度只认这些边 |
 | `user_feedback` | `target_type/target_id`、`feedback_type`、`reason`、`scope`、`promoted_assertion_id` | 默认 `scope=this_case`；`promote` 才升格为长期约束，且仍需用户确认 |
 | `career_goals` | `title`、`priority(1..5)`、`status`、`target_date`、`success_criteria_json`、`owner(user|agent)` | `owner=agent` 的目标不驱动优先级排序 |
-| `job_pipeline` | `job_id`(PK)、`discovery_status`、`decision_reason`、`priority`、`last_checked_at`、`next_review_at` | 与 `applications` 分离：无简历也能进短名单；状态转换受白名单限制 |
-| `next_actions` | `title`、`source_type/source_id`、`action_type`、`status`、`due_at`、`priority`、`depends_on_json`、`suggestion_reason`、`requires_approval` | 必须有 `suggestion_reason`；完成需证据或用户确认 |
+| `job_pipeline` | `job_id`(PK)、`discovery_status`、`goal_id`、`decision_reason`、`priority`、`last_checked_at`、`next_review_at` | 与 `applications` 分离：无简历也能进短名单；状态转换受白名单限制；`goal_id` 让岗位归到目标 |
+| `next_actions` | `title`、`source_type/source_id`、`action_type`、`status`、`due_at`、`priority`、`effort_hours`、`depends_on_json`、`suggestion_reason`、`requires_approval` | 必须有 `suggestion_reason`；完成需证据或用户确认；`effort_hours` 参与投入成本排序 |
 | `reflection_runs` | `period_start/period_end`、`input_event_ids_json`、`proposed_updates_json`、`status` | 只生成提案，不自动改写画像 |
 
 断言类型：`fact / preference / value / constraint / skill_hypothesis / career_hypothesis`。认识状态：`user_stated / user_confirmed / document_verified / inferred / disputed / retracted`。`constraint` 是本项目的落地扩展，用于硬约束过滤。
@@ -207,8 +207,10 @@ READY_FOR_USER -> SUBMITTED -> INTERVIEW -> OFFER -> ACCEPTED
 写入约定：
 
 - 一切"关于用户的话"走 `python -m careeros belief propose --file <json>`；改值用 `belief revise`，否认用 `dispute`，作废用 `retract`。
-- 情境化反应走 `signal add`；推广为长期约束走 `signal promote` 然后 `belief confirm`。
-- 岗位决定走 `pipeline update`；行动走 `action propose/complete`。
+- 情境化反应走 `signal add`；推广为长期约束需用户明确同意：`signal promote --human-confirmed`。
+- 岗位决定走 `pipeline update`（可带 `--goal-id`）；行动走 `action propose/complete`。
+
+文档导出不产生数据：`document-export` 读取已生成的简历或结构化输入，在 `outputs/` 写 DOCX/PDF 与 `manifest.json`（导出时间、来源 ID、字体和文件大小），不新增或修改任何表。
 - `twin sync-legacy` 把 v0.1 的 `profile` 列表、`career_directions`、`experiences.inferred_skills` 与 `jobs` 单向投影进 Core，旧表不改动，可重复执行。
 
 旧表与 Core 的分工：`experiences`、`jobs`、`job_analyses`、`resumes`、`learning_plans`、`interviews` 保持 JSON 文档形态（整段叙述有意义）；只有需要被单独引用、质疑和追溯时间的判断才拆成原子。`recruiting_feedback`（招聘方反馈）与 `user_feedback`（用户偏好信号）语义不同，不合并。

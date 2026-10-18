@@ -7,6 +7,8 @@ description: Interview a person about overlooked education, work, projects, hobb
 
 Build reusable evidence without turning plausible interpretation into biography.
 
+Primarily support students and recent graduates. Coursework, group assignments, student organizations, competitions, volunteering, part-time work, caring responsibilities and setbacks can supply real evidence. Start with one event and a few questions; no formal internship is required. Explain what remains unknown, accept corrections, and build understanding across sessions instead of assigning a fixed personality or ability label. Never turn a course project into employment or invent a job title, ownership, result or metric.
+
 1. Run `python -m careeros profile show` and `python -m careeros experience list`; read only records needed for the current question. Do not silently inspect accounts or unrelated personal files.
 2. Explore 2–3 neglected angles at a time. Ask about context, personally attributable actions, constraints, outcomes, artifacts and uncertainty; separate team output from individual ownership.
 3. Write reported facts, evidence and skill hypotheses separately. Interest is not competence; a user statement is confirmation, not independent verification.

@@ -8,6 +8,7 @@ database into the context window.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 from ..db import connect, deserialize, now
 from . import actions as actions_mod
@@ -56,7 +57,7 @@ def _claim(conn, row, *, with_basis: bool = True) -> dict:
     return item
 
 
-def _live_rows(conn, assertion_type=None, statuses=None, limit=20) -> list:
+def _live_rows(conn, assertion_type=None, statuses=None, limit=20, settled=False) -> list:
     clauses = ["valid_to=''", "epistemic_status!='retracted'"]
     params: list = []
     if assertion_type:
@@ -65,6 +66,11 @@ def _live_rows(conn, assertion_type=None, statuses=None, limit=20) -> list:
     if statuses:
         clauses.append("epistemic_status IN (%s)" % ",".join("?" * len(statuses)))
         params.extend(statuses)
+    if settled:
+        # A single hedged sentence ("I guess I value autonomy?") is a starting
+        # point, not an identity trait. It stays in `uncertainties` until the
+        # user confirms it or a second source supports it.
+        clauses.append("NOT (epistemic_status='user_stated' AND confidence='low')")
     params.append(limit)
     return conn.execute(
         f"SELECT * FROM user_assertions WHERE {' AND '.join(clauses)} "
@@ -96,7 +102,8 @@ def _directions(conn) -> list[dict]:
             "direction": _text(value),
             "status": row["epistemic_status"],
             "confidence": row["confidence"],
-            "support": [link["label"] for link in links if link["relation"] == "supports"][:3],
+            "support": [link["label"] for link in links
+                        if link["relation"] in ("supports", "derived_from")][:3],
             "contradict": [link["label"] for link in links if link["relation"] == "contradicts"][:3],
             "explanation": row["explanation"] or None,
         })
@@ -135,6 +142,7 @@ def _active_pipeline(conn, limit: int = 3) -> list[dict]:
             "next_action": (card["next_action"] or {}).get("title"),
             "deadline": card["deadline"],
             "blocker": card["blocking_issue"],
+            "goal": (card.get("goal") or {}).get("title"),
             "source": f"job:{row['job_id']}",
         })
     return result
@@ -142,15 +150,23 @@ def _active_pipeline(conn, limit: int = 3) -> list[dict]:
 
 def _active_goals(conn, limit: int = 3) -> list[dict]:
     rows = conn.execute(
-        "SELECT id,title,priority,status,target_date,owner FROM career_goals "
+        "SELECT id,title,priority,status,target_date,owner,direction_id FROM career_goals "
         "WHERE status IN ('active','exploring') ORDER BY priority, updated_at DESC LIMIT ?",
         (limit,)).fetchall()
     result = []
     for row in rows:
         item = dict(row)
+        if row["direction_id"]:
+            direction = conn.execute("SELECT data FROM career_directions WHERE id=?",
+                                     (row["direction_id"],)).fetchone()
+            item["direction"] = (deserialize(direction["data"]).get("title", "")
+                                 if direction else f"direction:{row['direction_id']}")
         item["open_actions"] = conn.execute(
-            "SELECT COUNT(*) FROM next_actions WHERE source_type='goal' AND source_id=? "
-            "AND status IN ('todo','doing','blocked')", (row["id"],)).fetchone()[0]
+            "SELECT COUNT(*) FROM next_actions a "
+            "LEFT JOIN job_pipeline p ON a.source_type='job' AND a.source_id=p.job_id "
+            "WHERE a.status IN ('todo','doing','blocked') "
+            "AND ((a.source_type='goal' AND a.source_id=?) OR p.goal_id=?)",
+            (row["id"], row["id"])).fetchone()[0]
         result.append(item)
     return result
 
@@ -158,20 +174,67 @@ def _active_goals(conn, limit: int = 3) -> list[dict]:
 def _uncertainties(conn, limit: int = 3) -> list[dict]:
     rows = conn.execute(
         "SELECT * FROM user_assertions WHERE valid_to='' AND (epistemic_status='disputed' OR "
-        "(epistemic_status='inferred' AND confidence IN ('low','medium'))) "
+        "(epistemic_status='inferred' AND confidence IN ('low','medium')) OR "
+        "(epistemic_status='user_stated' AND confidence='low' AND "
+        "assertion_type IN ('value','preference','skill_hypothesis'))) "
         "ORDER BY CASE epistemic_status WHEN 'disputed' THEN 0 ELSE 1 END, recorded_at DESC LIMIT ?",
         (limit,)).fetchall()
     items = []
     for row in rows:
+        if row["epistemic_status"] == "disputed":
+            question = "这条推断与用户说法冲突，需要用户裁决"
+        elif row["epistemic_status"] == "user_stated":
+            question = "这条自述措辞含糊；请确认它是否真的要写进长期画像"
+        else:
+            question = "这是推断，尚未获得用户确认"
         items.append({
             "assertion_id": row["id"],
             "claim": _text(deserialize(row["value_json"])),
             "status": row["epistemic_status"],
             "confidence": row["confidence"],
-            "question": ("这条推断与用户说法冲突，需要用户裁决" if row["epistemic_status"] == "disputed"
-                         else "这是推断，尚未获得用户确认"),
+            "question": question,
         })
     return items
+
+
+def _recent_changes(conn, days: int = 7, limit: int = 4) -> list[dict]:
+    """What the system *changed its mind about* recently, not just how often.
+
+    The fifth question ("why do you think so") is mostly about movement: a
+    version count tells the user nothing, a one-line diff does.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    rows = conn.execute(
+        "SELECT a.kind, a.resource_id, a.detail, a.created_at, u.value_json, u.epistemic_status "
+        "FROM audit_events a LEFT JOIN user_assertions u ON u.id=a.resource_id "
+        "WHERE a.resource='user_assertions' AND a.kind IN "
+        "('assertion.revised','assertion.retracted','assertion.disputed') "
+        "AND a.created_at >= ? ORDER BY a.id DESC LIMIT ?", (cutoff, limit)).fetchall()
+    labels = {"assertion.revised": "修订", "assertion.retracted": "撤回", "assertion.disputed": "存疑"}
+    return [{
+        "assertion_id": row["resource_id"],
+        "change": labels.get(row["kind"], row["kind"]),
+        "now": _text(deserialize(row["value_json"])) if row["value_json"] else "",
+        "status": row["epistemic_status"],
+        "at": row["created_at"],
+        "detail": (row["detail"] or "")[:80],
+    } for row in rows]
+
+
+def _recent_signals(conn, limit: int = 3) -> list[dict]:
+    """Why recently-considered options were accepted or rejected, in the user's words."""
+    rows = conn.execute(
+        "SELECT id,target_type,target_id,feedback_type,reason,scope,recorded_at,"
+        "promoted_assertion_id FROM user_feedback ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return [{
+        "feedback_id": row["id"],
+        "target": f"{row['target_type']}:{row['target_id']}",
+        "reaction": row["feedback_type"],
+        "reason": (row["reason"] or "")[:60],
+        "scope": row["scope"],
+        "promoted": bool(row["promoted_assertion_id"]),
+        "at": row["recorded_at"],
+    } for row in rows]
 
 
 def _fit(data: dict, max_chars: int) -> dict:
@@ -179,7 +242,9 @@ def _fit(data: dict, max_chars: int) -> dict:
     plan = [
         ("who_could_i_become", "directions"),
         ("where_i_am_now", "active"),
+        ("where_i_am_now", "recent_signals"),
         ("what_next", "actions"),
+        (None, "recent_changes"),
         ("who_am_i", "strengths"),
         ("who_am_i", "values"),
         ("who_am_i", "preferences"),
@@ -235,15 +300,15 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
         identity = {key: value for key, value in identity.items() if value}
 
         strengths = [_claim(conn, row) for row in _live_rows(
-            conn, "skill_hypothesis", statuses=assertions.USER_BACKED, limit=4)]
+            conn, "skill_hypothesis", statuses=assertions.USER_BACKED, limit=4, settled=True)]
         values = [_claim(conn, row) for row in _live_rows(
-            conn, "value", statuses=assertions.USER_BACKED, limit=3)]
+            conn, "value", statuses=assertions.USER_BACKED, limit=3, settled=True)]
         preferences = [_claim(conn, row) for row in _live_rows(
-            conn, "preference", statuses=assertions.USER_BACKED, limit=3)]
+            conn, "preference", statuses=assertions.USER_BACKED, limit=3, settled=True)]
         constraints = [_claim(conn, row, with_basis=False) for row in _live_rows(
-            conn, "constraint", statuses=assertions.USER_BACKED, limit=3)]
+            conn, "constraint", statuses=assertions.USER_BACKED, limit=3, settled=True)]
         facts = [_claim(conn, row, with_basis=False) for row in _live_rows(
-            conn, "fact", statuses=assertions.USER_BACKED, limit=3)]
+            conn, "fact", statuses=assertions.USER_BACKED, limit=3, settled=True)]
 
         directions = _directions(conn)
         goals = _active_goals(conn)
@@ -252,6 +317,8 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
         evidence_base = _experience_base(conn)
         open_actions = actions_mod.list_actions(limit=6)
         uncertainties = _uncertainties(conn)
+        recent_changes = _recent_changes(conn)
+        recent_signals = _recent_signals(conn)
         signal_count = conn.execute("SELECT COUNT(*) FROM user_feedback").fetchone()[0]
         application_counts = {row["status"]: row["n"] for row in conn.execute(
             "SELECT status,COUNT(*) AS n FROM applications GROUP BY status")}
@@ -310,9 +377,11 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
             "waiting": [{"action_id": row["id"], "title": row["title"], "why": row["why"]}
                         for row in open_actions.get("waiting", [])][:2],
             "user_signals": signal_count,
+            "recent_signals": recent_signals,
         },
-        "what_next": {"actions": next_actions, "rule": "紧急度+来源权重+优先级；不是成功概率"},
+        "what_next": {"actions": next_actions, "rule": "紧急度+来源权重+优先级+目标+投入成本；不是成功概率"},
         "why": why,
+        "recent_changes": recent_changes,
         "uncertainties": uncertainties,
         "drill_down": {
             "assertion": "python -m careeros context inspect --assertion-id <id>",

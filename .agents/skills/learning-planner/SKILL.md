@@ -5,6 +5,8 @@ description: Convert evidenced target-role gaps and review findings into priorit
 
 # Learning planner
 
+For students and recent graduates, first ask about available weekly hours, exams, coursework, internship availability and application deadlines where relevant. Fit a small number of milestones into that capacity, use course or personal projects as evidence when appropriate, and review the plan as capacity changes. Do not present an overloaded checklist as a cure for anxiety or schedule notifications/background work that the host cannot provide.
+
 1. Read target job analyses, review findings and feedback plan. Distinguish unknown evidence, preparation risk and actual missing capability.
 2. Route `practice` to rehearsal, `evidence` to a demonstrable artifact/credential, and `retarget` to a role/level change. Do not turn `structural|blocker` into a wording task.
 3. Draft 2–5 milestones with deliverable, acceptance criteria, effort/date, dependencies and current source URLs where relevant. Prefer portfolio-quality proof over passive course completion.

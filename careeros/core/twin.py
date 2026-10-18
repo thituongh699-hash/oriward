@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime, timezone
 
 from .. import migrations
 from ..db import connect, deserialize, now
@@ -153,6 +154,14 @@ def sync_legacy() -> dict:
             "note": "旧表未被修改；迁移只新增 Core 记录，可重复运行"}
 
 
+def _parse_when(value: str):
+    try:
+        parsed = datetime.fromisoformat((value or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 def status() -> dict:
     with connect() as conn:
         version = migrations.current_version(conn)
@@ -163,6 +172,13 @@ def status() -> dict:
                       "job_pipeline", "next_actions", "reflection_runs", "applications",
                       "experiences", "jobs", "career_directions"):
             counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        reference = _parse_when(now())
+        overdue = 0
+        for row in conn.execute(
+                "SELECT due_at FROM next_actions WHERE status IN ('todo','doing') AND due_at!=''"):
+            due = _parse_when(row["due_at"])
+            if due is not None and reference is not None and due < reference:
+                overdue += 1
         health = {
             "jobs_without_pipeline": conn.execute(
                 "SELECT COUNT(*) FROM jobs j WHERE NOT EXISTS "
@@ -176,9 +192,7 @@ def status() -> dict:
             "disputed_claims": conn.execute(
                 "SELECT COUNT(*) FROM user_assertions WHERE valid_to='' "
                 "AND epistemic_status='disputed'").fetchone()[0],
-            "overdue_actions": conn.execute(
-                "SELECT COUNT(*) FROM next_actions WHERE status IN ('todo','doing') "
-                "AND due_at!='' AND due_at < ?", (now(),)).fetchone()[0],
+            "overdue_actions": overdue,
             "goals_without_actions": conn.execute(
                 "SELECT COUNT(*) FROM career_goals g WHERE g.status IN ('active','exploring') "
                 "AND NOT EXISTS (SELECT 1 FROM next_actions a WHERE a.source_type='goal' "

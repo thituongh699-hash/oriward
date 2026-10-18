@@ -7,6 +7,9 @@ param(
     [string]$Python = 'python'
 )
 $ErrorActionPreference = 'Stop'
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+    throw '此凭证保存辅助脚本依赖 Windows DPAPI；项目主程序不依赖该脚本。凭证配置见 docs/LIEPIN_INTEGRATION.md。'
+}
 $project = Split-Path $PSScriptRoot -Parent
 $secretFile = Join-Path $project 'data\private\liepin-token.dpapi'
 if ($Setup) {

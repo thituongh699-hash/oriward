@@ -90,7 +90,8 @@ def search(query, location="", limit=10, refresh=False):
     if not token:
         return {"provider": "liepin", "executed": False, "status": "AUTH_REQUIRED",
                 "auth_url": "https://www.liepin.com/mcp/auth",
-                "setup": "scripts/liepin.ps1 -Setup", "scope": "job_search_only"}
+                "setup": "docs/LIEPIN_INTEGRATION.md", "credential_env": "LIEPIN_USER_TOKEN",
+                "scope": "job_search_only"}
     if len(token) > 8192 or not token.isascii() or any(ord(c) < 33 for c in token):
         raise ValidationError("Invalid credential format; re-enter locally")
     payload = {"jobName": query.strip(), "page": 0}

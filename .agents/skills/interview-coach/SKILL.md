@@ -5,6 +5,8 @@ description: Build a dated public-source company dossier, run role-relevant seve
 
 # Interview coach
 
+For student and graduate-entry roles, practice explaining real coursework, campus projects, internships and learning choices at the depth the job requires. Agree on a manageable practice pace, and separate answer preparation from actual missing capability. Feedback describes an answer or task, never the user's worth or a permanent ability label.
+
 1. Read `jobs show --id <id>`, the exact resume/version, structured analysis, review and open feedback plan.
 2. Research public company sources as needed. Actually open them; preserve exact URL, retrieval date and fact, with inference in a separate field. Do not upload personal data or imply access to employer systems.
 3. Derive questions from JD requirements and red findings across HR, hiring manager, technical, pressure, background and competition. Pressure questions stay job relevant and respectful; no protected-characteristic or discriminatory questions. Competition is hypothetical, not invented applicant intelligence.

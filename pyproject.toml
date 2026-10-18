@@ -1,12 +1,12 @@
 [project]
 name = "careeros-local"
 version = "0.2.0"
-description = "Career Twin Core: evidence-backed career agent with eight skills on top"
+description = "Evidence-backed career growth workbench for students and recent graduates, powered by your chosen agent"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "CareerOS contributors" }]
-keywords = ["career", "job-search", "resume", "local-first", "sqlite", "agent", "codex"]
+keywords = ["career", "job-search", "resume", "students", "graduates", "local-first", "sqlite", "agent"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
@@ -29,6 +29,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["ruff>=0.6"]
+documents = ["python-docx>=1.2,<2", "reportlab>=4.4,<6", "pypdf>=5,<7"]
 
 [project.scripts]
 careeros = "careeros.cli:main"

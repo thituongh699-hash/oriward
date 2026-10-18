@@ -1,8 +1,14 @@
-# CareerOS · evidence-backed career workbench (v0.2.0)
+# CareerOS · agent-powered career growth for students and recent graduates (v0.2.0)
 
 [中文 README](README.md) · [MIT License](LICENSE)
 
-CareerOS is a local-first workbench for one job search at a time. It keeps the
+CareerOS is a local-first workbench primarily for students and recent graduates.
+Start with an uncertain direction, a course project, an internship or an informal
+responsibility. Across sessions, your chosen agent builds an evidence-backed
+understanding of you and helps turn exploration into learning, application plans
+and interview preparation at a pace that fits your studies.
+
+It keeps the
 *semantic* work — reading a JD, mapping your real experience to it, arguing with
 your own resume — with an agent, and keeps everything that must be reproducible
 (versions, provenance, state) in a deterministic Python CLI over SQLite.
@@ -10,13 +16,24 @@ your own resume — with an agent, and keeps everything that must be reproducibl
 Eight skills wrap one loop: discovery → mapping → sourcing → JD analysis →
 evidence-locked resume → simulated hiring review → feedback → next action.
 
-**No third-party runtime dependencies.** Python 3.10+ and the standard library.
+**Core CLI: no third-party runtime dependencies.** Python 3.10+ and the standard library.
+The additional `document-export` skill converts an existing resume or reviewed plan
+into editable DOCX and PDF. It changes format only and writes no CareerOS record.
+
+The workflow is independent of the agent vendor: Claude Code (CC), WorkBuddy,
+Doubao or another LLM-backed tool can follow the repository instructions. Direct
+execution requires local file access and a terminal; chat-only tools require the
+user to run commands and share selected outputs. Native Skills discovery and
+browser capabilities vary, and individual tools have not all been integration-tested.
+If a tool does not discover Skills automatically, ask it to read `AGENTS.md` and
+the relevant `.agents/skills/<name>/SKILL.md` explicitly.
+
+New here? Read the separate [User onboarding manual](docs/USER_GUIDE.md) (Chinese)
+for setup, the first conversation, study/application planning and switching tools.
 
 ## This project will not apply to jobs for you
 
-Mass applying has negative expected value. Sending the same resume to dozens of
-mismatched postings burns your time, the recruiter's attention, and your standing
-with whatever triage system sees you next.
+> **海投是负期望的。 / Mass applying has negative expected value.**
 
 So CareerOS is a *desk before the application*, not an application bot. It does the
 things that actually raise the expected value of a single application: decomposing
@@ -24,8 +41,8 @@ requirements, aligning evidence, freezing resume versions, recording real feedba
 The submit click stays with you, on the employer's own page.
 
 Deliberately absent: no submit API, no browser auto-clicking, no CAPTCHA bypass,
-no credential storage for job boards, no bulk-apply queue. That is a design
-decision, not a backlog item.
+no bulk-apply queue. An optional search extension may use locally configured
+credentials; see the extension's documentation. The final submission stays human.
 
 ## Architecture in one paragraph
 
@@ -41,24 +58,20 @@ computes state; the model argues about meaning. See
 
 ## Quick start
 
-```powershell
-python -m pip install -e .          # optional; otherwise prefix commands with python -m
+Clone or download the repository, load the project folder in your agent tool,
+and allow project file access and local command execution. Then send:
 
-python -m careeros init             # create/migrate the local SQLite schema
-python -m careeros twin status      # health check and suggested next step
-python -m careeros context brief    # bounded five-question summary
-python -m unittest discover -s tests -v
-
-# fictional demo records, safe to use
-python -m careeros jobs import --csv data/examples/jobs.csv
-python -m careeros jobs card --id 1
+```text
+Read AGENTS.md and follow the first-use startup workflow for CareerOS.
+I am a [student/recent graduate], currently [exploring roles/seeking an internship/preparing applications].
+Start with one real experience and ask two or three questions at a time.
+Keep facts, inferences and unknowns separate, then save the records and one agreed next action.
 ```
 
-A full fictional end-to-end run (isolated database, no network, no submissions):
-
-```powershell
-python scripts/demo_hiring_loop.py --output outputs/hiring-loop-demo-local
-```
+The agent checks the runtime, resolves a Python 3.10+ interpreter and initializes
+the local database. The core needs no package installation or extra service.
+Missing runtime or execution permissions must be reported explicitly. The
+[user manual](docs/USER_GUIDE.md) includes an optional isolated fictional demo.
 
 ## What it can and cannot do
 
@@ -92,11 +105,11 @@ Deleting `careeros/extras/` removes every such integration without touching the 
 careeros/            CLI, storage, migrations, deterministic domain logic
 careeros/core/       Career Twin Core (assertions, goals, pipeline, signals, context)
 careeros/extras/     opt-in third-party integrations (not imported by default)
-.agents/skills/      eight orchestration skills
+.agents/skills/      eight career workflows plus document-export
 data/examples/       fictional records, safe to publish
 docs/                architecture, data model, security, workflows, evaluation
 scripts/             demo, smoke test, verification helpers
-tests/               132 unit tests
+tests/               core and document-export behavior tests
 ```
 
 Local private state lives in `data/private/` and `outputs/`; both are Git-ignored.

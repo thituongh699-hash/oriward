@@ -20,6 +20,13 @@ FEEDBACK_TYPES = (
 )
 SCOPES = ("this_case", "general")
 
+#: Target types that must point at a stored row. A reaction to a job that does
+#: not exist is not evidence, and would later support a fabricated constraint.
+_TARGET_TABLES = {
+    "career_direction": "career_directions", "job": "jobs", "goal": "career_goals",
+    "action": "next_actions", "plan": "learning_plans", "resume": "resumes",
+}
+
 _COLUMNS = ("id", "target_type", "target_id", "feedback_type", "reason", "source",
             "scope", "recorded_at", "promoted_assertion_id")
 
@@ -33,6 +40,11 @@ def add(*, target_type: str, target_id: int, feedback_type: str, reason: str = "
     if scope not in SCOPES:
         raise ValueError("scope must be one of " + ", ".join(SCOPES))
     with connect() as conn:
+        table = _TARGET_TABLES.get(target_type)
+        if table and conn.execute(f"SELECT 1 FROM {table} WHERE id=?", (int(target_id),)).fetchone() is None:
+            raise NotFoundError(
+                f"{target_type} #{target_id} does not exist; record the reaction against a stored object"
+            )
         cursor = conn.execute(
             "INSERT INTO user_feedback(target_type,target_id,feedback_type,reason,source,scope,recorded_at) "
             "VALUES (?,?,?,?,?,?,?)",
@@ -69,8 +81,19 @@ def list_feedback(*, target_type: str | None = None, target_id: int | None = Non
 
 def promote(feedback_id: int, *, subject: str = "work_conditions", predicate: str = "hard_constraint",
             assertion_type: str = "constraint", confidence: str = "medium",
-            value: str | None = None, explanation: str = "") -> dict:
-    """Turn one situational observation into a standing rule, on request only."""
+            value: str | None = None, explanation: str = "",
+            human_confirmed: bool = False) -> dict:
+    """Turn one situational observation into a standing rule, on request only.
+
+    A single reaction must never become a permanent trait on the Agent's say-so,
+    so promoting requires an explicit user confirmation, just like recording a
+    submission or completing an approval-gated action.
+    """
+    if not human_confirmed:
+        raise ValueError(
+            "promoting one reaction into a standing constraint requires the user's explicit "
+            "confirmation (--human-confirmed); keep it case-scoped for now"
+        )
     with connect() as conn:
         row = conn.execute("SELECT * FROM user_feedback WHERE id=?", (feedback_id,)).fetchone()
         if row is None:
@@ -95,8 +118,8 @@ def promote(feedback_id: int, *, subject: str = "work_conditions", predicate: st
                      (created["id"], feedback_id))
         audit(conn, "feedback.promoted", "user_feedback", feedback_id, f"-> assertion {created['id']}")
     return {"feedback_id": feedback_id, "assertion_id": created["id"], "created": created["created"],
-            "epistemic_status": created["epistemic_status"],
-            "hint": f"运行 belief confirm --id {created['id']} 让它成为已确认的长期约束"}
+            "epistemic_status": created["epistemic_status"], "confirmed": True,
+            "hint": "该偏好已按用户确认写入长期约束；如需改口，使用 belief revise 或 belief retract"}
 
 
 def open_for(conn, target_type: str, target_id: int, limit: int = 10) -> list[dict]:

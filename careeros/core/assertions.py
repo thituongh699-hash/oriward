@@ -231,6 +231,15 @@ def revise(assertion_id: int, *, value=None, confidence: str | None = None,
                 "value": new_value}
 
 
+def _closed(row, action: str) -> None:
+    """A superseded row is history; acting on it would fork the live version."""
+    if row["superseded_by_id"] or (row["valid_to"] and row["epistemic_status"] != "retracted"):
+        raise ValueError(
+            f"assertion #{row['id']} is no longer current (superseded by #{row['superseded_by_id']}); "
+            f"{action} the live version instead"
+        )
+
+
 def confirm(assertion_id: int, *, source_ref: str = "", note: str = "") -> dict:
     """Record that the user personally stands behind this claim."""
     with connect() as conn:
@@ -239,6 +248,7 @@ def confirm(assertion_id: int, *, source_ref: str = "", note: str = "") -> dict:
             raise NotFoundError(f"assertion #{assertion_id} not found")
         if row["epistemic_status"] == "retracted":
             raise ValueError(f"assertion #{assertion_id} is retracted and cannot be confirmed")
+        _closed(row, "confirm")
         stamp = now()
         conn.execute(
             "UPDATE user_assertions SET epistemic_status='user_confirmed', last_confirmed_at=?, "
@@ -257,6 +267,7 @@ def dispute(assertion_id: int, reason: str) -> dict:
             raise NotFoundError(f"assertion #{assertion_id} not found")
         if row["epistemic_status"] == "retracted":
             raise ValueError(f"assertion #{assertion_id} is retracted")
+        _closed(row, "dispute")
         conn.execute("UPDATE user_assertions SET epistemic_status='disputed' WHERE id=?", (assertion_id,))
         audit(conn, "assertion.disputed", "user_assertions", assertion_id, reason)
         return {"id": assertion_id, "epistemic_status": "disputed", "reason": reason}
@@ -268,6 +279,9 @@ def retract(assertion_id: int, reason: str) -> dict:
         row = conn.execute("SELECT * FROM user_assertions WHERE id=?", (assertion_id,)).fetchone()
         if row is None:
             raise NotFoundError(f"assertion #{assertion_id} not found")
+        if row["epistemic_status"] == "retracted":
+            raise ValueError(f"assertion #{assertion_id} is already retracted")
+        _closed(row, "retract")
         stamp = now()
         conn.execute(
             "UPDATE user_assertions SET epistemic_status='retracted', retracted_at=?, retract_reason=?, "

@@ -4,18 +4,20 @@
 
 ## 环境
 
-```powershell
-git clone <repo-url> && cd careeros
+```text
+git clone <repo-url> careeros
+cd careeros
 python -m pip install -e .          # 可选；不装也能用 python -m careeros
 python -m unittest discover -s tests -v
 ```
 
-- Python 3.10+。**运行时不允许引入第三方依赖**，只用标准库；这是项目有意的约束，不是待办。
+- Python 3.10+。核心 CLI 只用标准库，不引入第三方运行时依赖。`document-export` 的生成/校验库放在独立的 `documents` 可选依赖组中，只在导出时使用；不要在核心模块导入它们。
 - 开发期可选装 ruff：`python -m pip install -e ".[dev]"`，配置在 `pyproject.toml`（当前只启用 `E9`/`F` 真实缺陷规则）。
+- 命令中的 `python` 代表当前环境的 Python 3.10+ 解释器。主工作流不依赖特定 shell；CI 覆盖三个桌面系统，实际运行结果以对应的 Actions 记录为准。不要让默认工作流依赖 `.ps1` 或 `.sh` 辅助脚本。
 
 ## 提交前必做
 
-1. `python -m unittest discover -s tests -v` 全绿（当前 132 个测试）。
+1. `python -m unittest discover -s tests -v` 全绿；可选文档后端还需在提供 `documents` 依赖的环境运行导出测试。
 2. 确认没有把本地状态带进提交：`git status` 中不应出现 `data/private/`、`outputs/`、`*.sqlite3`、`*.dpapi`。
 3. 新增功能补测试；修 bug 优先补一个能复现该 bug 的测试。
 4. 涉及外部网络、凭证、状态推进的改动，同步更新 `docs/SECURITY.md` 与对应契约文档。

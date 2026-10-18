@@ -1,12 +1,14 @@
-# Architecture · Codex 负责语义，CLI 负责约束
+# Architecture · Agent 负责语义，CLI 负责约束
 
 ## 责任边界
 
-CareerOS 只有一个推理层：Codex。8 个 Skills 是按需加载的工作规范，不是常驻 agent。Python CLI 不调用 LLM，也不会自主判断候选人是否满足 JD；它负责来源读取、数据校验、哈希冻结、持久化、状态机和可重复的等级规则。
+CareerOS 的推理与编排由用户选择的大模型 Agent 承担，不绑定特定工具或模型厂商。8 个 Skills 是按需读取的工作规范，不要求宿主提供原生 Skills 系统。Python CLI 不调用 LLM，也不会自主判断候选人是否满足 JD；它负责来源读取、数据校验、哈希冻结、持久化、状态机和可重复的等级规则。
+
+主要使用者是在校生与应届生：经历、方向、学习证据和投递安排在多次会话中逐步积累。具备文件和终端权限的宿主可以直接执行 CLI；不具备这些权限时，由用户手动执行并提供必要输出。浏览器与联网能力由宿主提供，缺失时使用授权导入，不能把工具不可用写成岗位不存在。具体接入和首次使用见 [用户入门手册](USER_GUIDE.md)。
 
 ```mermaid
 flowchart LR
-  U[用户] --> C[Codex + project Skills]
+  U[用户] --> C[Agent + project Skills]
   C -->|公共职位查询| G[Greenhouse / Lever public APIs]
   C -->|结构化 JSON/CSV| P[Python CLI]
   G --> P
@@ -21,7 +23,7 @@ flowchart LR
 
 ## 分层
 
-- **Codex**：理解自然语言 JD，查验公开公司资料，区分事实和推断，映射个人证据，执行红/蓝招聘审查，起草措辞和训练计划。
+- **Agent**：理解自然语言 JD，查验公开公司资料，区分事实和推断，映射个人证据，执行红/蓝招聘审查，起草措辞和训练计划。
 - **Skills**：定义何时取 packet、必须查哪些证据、可接受的来源和停止条件。
 - **CLI/services**：验证 JSON 契约、外键、精确引文、简历/岗位哈希、招聘阶段覆盖、反馈版本关系和人工确认。
 - **SQLite**：唯一结构化事实源；聊天总结不代表已保存。
@@ -37,10 +39,10 @@ flowchart LR
 
 1. `analysis draft` 产生逐行候选要求，所有 match 为 `unknown`，`coverage_confirmed=false`。
 2. `analysis packet` 返回当前 JD、稳定岗位哈希、已批准且有证据的经历、最近一次结构化分析。
-3. Codex 做完整语义拆解，并保留每个要求在 JD 中的精确 `quote`；查公司时保存 URL、检索日期、事实、推断和可用状态。
+3. Agent 做完整语义拆解，并保留每个要求在 JD 中的精确 `quote`；查公司时保存 URL、检索日期、事实、推断和可用状态。
 4. `analysis save` 验证引用和经历 ID，并计算建议与置信度。CLI 不负责“看懂”JD。
 5. `review packet` 冻结精确简历内容、实际/登记哈希、岗位、最新分析、改版信息和历史评审。
-6. Codex 分七阶段完成红方 findings 与蓝方 actions；`review save` 检查全量覆盖和版本一致性，再计算 A–D 或 `NEEDS_EVIDENCE`。
+6. Agent 分七阶段完成红方 findings 与蓝方 actions；`review save` 检查全量覆盖和版本一致性，再计算 A–D 或 `NEEDS_EVIDENCE`。
 
 评审结果固定标为 `SIMULATED_HIRING_REVIEW_NOT_EMPLOYER_VERDICT`。它是准备工具，不是雇主内部结论、录用保证或校准概率。
 

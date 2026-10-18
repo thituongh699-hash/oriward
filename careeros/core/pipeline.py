@@ -5,6 +5,8 @@ shortlisted long before any resume exists, and "prepared" is never "submitted".
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from ..db import audit, connect, deserialize, now
 from .errors import NotFoundError
 
@@ -17,10 +19,21 @@ TRANSITIONS = {
     "discarded": {"evaluating"},
 }
 OPEN_STATES = ("discovered", "evaluating", "shortlisted")
+#: Application stages are ordered by progress, so the newest row cannot hide a
+#: further-along application for the same vacancy.
+_STAGE_RANK = {"READY_FOR_USER": 0, "SUBMITTED": 1, "INTERVIEW": 2, "OFFER": 3,
+               "ACCEPTED": 4, "REJECTED": 4, "WITHDRAWN": 4, "DECLINED": 4}
+
+
+def _check_goal(conn, goal_id: int | None) -> None:
+    if goal_id is None:
+        return
+    if conn.execute("SELECT 1 FROM career_goals WHERE id=?", (int(goal_id),)).fetchone() is None:
+        raise NotFoundError(f"goal #{goal_id} not found")
 
 
 def ensure(job_id: int, *, status: str = "discovered", priority: int | None = None,
-           reason: str = "") -> dict:
+           reason: str = "", goal_id: int | None = None) -> dict:
     """Create a pipeline row without changing an existing one."""
     if status not in STATES:
         raise ValueError("status must be one of " + ", ".join(STATES))
@@ -28,24 +41,27 @@ def ensure(job_id: int, *, status: str = "discovered", priority: int | None = No
         job = conn.execute("SELECT id FROM jobs WHERE id=?", (int(job_id),)).fetchone()
         if job is None:
             raise NotFoundError(f"job #{job_id} not found")
+        _check_goal(conn, goal_id)
         existing = conn.execute("SELECT * FROM job_pipeline WHERE job_id=?", (int(job_id),)).fetchone()
         if existing is not None:
             return {"job_id": int(job_id), "created": False, "discovery_status": existing["discovery_status"]}
         conn.execute(
             "INSERT INTO job_pipeline(job_id,discovery_status,decision_reason,priority,last_checked_at,"
-            "next_review_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-            (int(job_id), status, reason, priority, now(), "", now(), now()),
+            "next_review_at,created_at,updated_at,goal_id) VALUES (?,?,?,?,?,?,?,?,?)",
+            (int(job_id), status, reason, priority, now(), "", now(), now(), goal_id),
         )
         audit(conn, "pipeline.created", "job_pipeline", int(job_id), f"{status} {reason}"[:120])
-        return {"job_id": int(job_id), "created": True, "discovery_status": status}
+        return {"job_id": int(job_id), "created": True, "discovery_status": status, "goal_id": goal_id}
 
 
 def update(job_id: int, *, status: str, reason: str = "", priority: int | None = None,
-           next_review_at: str | None = None, last_checked_at: str | None = None) -> dict:
+           next_review_at: str | None = None, last_checked_at: str | None = None,
+           goal_id: int | None = None) -> dict:
     status = status.strip().lower()
     if status not in STATES:
         raise ValueError("status must be one of " + ", ".join(STATES))
     with connect() as conn:
+        _check_goal(conn, goal_id)
         row = conn.execute("SELECT * FROM job_pipeline WHERE job_id=?", (int(job_id),)).fetchone()
         if row is None:
             job = conn.execute("SELECT id FROM jobs WHERE id=?", (int(job_id),)).fetchone()
@@ -53,12 +69,12 @@ def update(job_id: int, *, status: str, reason: str = "", priority: int | None =
                 raise NotFoundError(f"job #{job_id} not found")
             conn.execute(
                 "INSERT INTO job_pipeline(job_id,discovery_status,decision_reason,priority,last_checked_at,"
-                "next_review_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                "next_review_at,created_at,updated_at,goal_id) VALUES (?,?,?,?,?,?,?,?,?)",
                 (int(job_id), status, reason, priority, now(),
-                 next_review_at or "", now(), now()),
+                 next_review_at or "", now(), now(), goal_id),
             )
             audit(conn, "pipeline.created", "job_pipeline", int(job_id), f"{status} {reason}"[:120])
-            return {"job_id": int(job_id), "from": None, "to": status, "created": True}
+            return {"job_id": int(job_id), "from": None, "to": status, "created": True, "goal_id": goal_id}
         if status != row["discovery_status"] and status not in TRANSITIONS[row["discovery_status"]]:
             raise ValueError(
                 f"pipeline transition {row['discovery_status']} -> {status} not allowed; "
@@ -66,16 +82,17 @@ def update(job_id: int, *, status: str, reason: str = "", priority: int | None =
             )
         conn.execute(
             "UPDATE job_pipeline SET discovery_status=?, decision_reason=?, priority=?, "
-            "next_review_at=?, last_checked_at=?, updated_at=? WHERE job_id=?",
+            "next_review_at=?, last_checked_at=?, updated_at=?, goal_id=? WHERE job_id=?",
             (status, reason or row["decision_reason"],
              priority if priority is not None else row["priority"],
              next_review_at if next_review_at is not None else row["next_review_at"],
-             last_checked_at or now(), now(), int(job_id)),
+             last_checked_at or now(), now(),
+             goal_id if goal_id is not None else row["goal_id"], int(job_id)),
         )
         audit(conn, "pipeline.updated", "job_pipeline", int(job_id),
               f"{row['discovery_status']}->{status} {reason}"[:160])
         return {"job_id": int(job_id), "from": row["discovery_status"], "to": status,
-                "reason": reason}
+                "reason": reason, "goal_id": goal_id if goal_id is not None else row["goal_id"]}
 
 
 def list_pipeline(*, status: str | None = None, include_discarded: bool = False,
@@ -93,7 +110,8 @@ def list_pipeline(*, status: str | None = None, include_discarded: bool = False,
     params.append(limit)
     with connect() as conn:
         rows = conn.execute(
-            "SELECT p.*, j.title, j.company, j.url FROM job_pipeline p JOIN jobs j ON j.id=p.job_id "
+            "SELECT p.*, j.title, j.company, j.url, g.title AS goal_title FROM job_pipeline p "
+            "JOIN jobs j ON j.id=p.job_id LEFT JOIN career_goals g ON g.id=p.goal_id "
             f"{where} ORDER BY COALESCE(p.priority,9), p.updated_at DESC LIMIT ?", params).fetchall()
         result = []
         for row in rows:
@@ -117,22 +135,46 @@ def _applications(conn, job_id: int) -> list[dict]:
 
 
 def _latest_event(conn, application_id: int):
-    return conn.execute(
+    """Prefer an event the user confirmed; never label an unverified one as verified."""
+    row = conn.execute(
         "SELECT kind,label,COALESCE(NULLIF(occurred_at,''),created_at) AS at,from_status,to_status,"
         "human_confirmed FROM application_events WHERE application_id=? ORDER BY id DESC LIMIT 1",
         (application_id,)).fetchone()
+    if row is None or row["human_confirmed"]:
+        return row
+    verified = conn.execute(
+        "SELECT kind,label,COALESCE(NULLIF(occurred_at,''),created_at) AS at,from_status,to_status,"
+        "human_confirmed FROM application_events WHERE application_id=? AND human_confirmed=1 "
+        "ORDER BY id DESC LIMIT 1", (application_id,)).fetchone()
+    return verified or row
+
+
+def _parse_when(value: str):
+    try:
+        parsed = datetime.fromisoformat((value or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _next_deadline(conn, application_ids: list[int]) -> dict | None:
     if not application_ids:
         return None
     placeholders = ",".join("?" * len(application_ids))
-    row = conn.execute(
+    rows = conn.execute(
         f"SELECT application_id,kind,label,scheduled_at FROM application_events "
-        f"WHERE application_id IN ({placeholders}) AND scheduled_at!='' "
-        "AND scheduled_at >= ? ORDER BY scheduled_at LIMIT 1",
-        (*application_ids, now())).fetchone()
-    return dict(row) if row else None
+        f"WHERE application_id IN ({placeholders}) AND scheduled_at!='' ORDER BY scheduled_at",
+        tuple(application_ids)).fetchall()
+    reference = _parse_when(now())
+    upcoming = []
+    for row in rows:
+        when = _parse_when(row["scheduled_at"])
+        if when is not None and reference is not None and when >= reference:
+            upcoming.append((when, dict(row)))
+    if not upcoming:
+        return None
+    upcoming.sort(key=lambda item: item[0])
+    return upcoming[0][1]
 
 
 def show(job_id: int) -> dict:
@@ -156,6 +198,11 @@ def show(job_id: int) -> dict:
         deadline = _next_deadline(conn, [a["id"] for a in applications])
         from . import signals
         feedback = signals.open_for(conn, "job", job_id)
+        goal_row = None
+        if pipeline is not None and pipeline["goal_id"]:
+            goal_row = conn.execute(
+                "SELECT id,title,priority,owner FROM career_goals WHERE id=?",
+                (pipeline["goal_id"],)).fetchone()
 
     blocker = None
     for action in actions:
@@ -166,16 +213,23 @@ def show(job_id: int) -> dict:
         pending = [a for a in actions if a["requires_approval"]]
         if pending:
             blocker = {"action_id": pending[0]["id"], "reason": "需要用户确认后才能继续"}
-    stage = None
     if applications:
-        stage = applications[0]["status"]
+        # "Where am I" means the furthest stage reached, not the newest row.
+        stage = max(applications, key=lambda item: (_STAGE_RANK.get(item["status"], 0), item["id"]))["status"]
+    else:
+        discovery_status = pipeline["discovery_status"] if pipeline else "unclassified"
+        stage = f"discovery:{discovery_status}"
     return {
         "job": {"id": job["id"], "title": job["title"], "company": job["company"],
                 "url": job["url"], "location": job_data.get("location", ""),
                 "availability": job_data.get("availability", "unknown")},
+        "source": {"job_id": job["id"], "url": job["url"],
+                   "availability": job_data.get("availability", "unknown")},
         "pipeline": dict(pipeline) if pipeline else {"discovery_status": "unclassified"},
+        "goal": dict(goal_row) if goal_row else None,
         "current_stage": stage,
-        "last_verified_event": events[0] if events else None,
+        "last_verified_event": ({**dict(events[0]), "verified": bool(events[0]["human_confirmed"])}
+                                if events else None),
         "next_action": actions[0] if actions else None,
         "deadline": deadline,
         "blocking_issue": blocker,

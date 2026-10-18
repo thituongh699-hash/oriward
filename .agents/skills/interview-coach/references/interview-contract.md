@@ -2,7 +2,7 @@
 
 Interview session JSON requires `job_id`, `questions`, `practice`, `next_actions`. Recommended: `resume_id`, interview round/date and `company_sources`, where each item preserves URL, retrieved_at, sourced fact and separate inference. Each practice item stores the actual question, user's actual answer, feedback and supporting experience IDs. Never save an invented polished answer as the user's response.
 
-```powershell
+```text
 python -m careeros interview save --file data/private/interview-session.json
 python -m careeros interview list
 ```

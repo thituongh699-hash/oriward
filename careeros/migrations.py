@@ -254,6 +254,12 @@ ADDED_COLUMNS = {
         "human_confirmed": "INTEGER NOT NULL DEFAULT 0",
         "evidence_ref": "TEXT NOT NULL DEFAULT ''",
     },
+    "job_pipeline": {
+        "goal_id": "INTEGER REFERENCES career_goals(id)",
+    },
+    "next_actions": {
+        "effort_hours": "INTEGER",
+    },
 }
 
 
@@ -277,6 +283,8 @@ def add_missing_columns(conn) -> list[str]:
 MIGRATIONS = [
     {"version": 1, "name": "baseline_v0_1", "sql": BASELINE, "post": None},
     {"version": 2, "name": "career_twin_core", "sql": CORE_SQL, "post": add_missing_columns},
+    # v3 links the three time scales: a goal owns a job, a job carries effort.
+    {"version": 3, "name": "goal_job_action_link", "sql": "SELECT 1;", "post": add_missing_columns},
 ]
 
 

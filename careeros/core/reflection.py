@@ -44,7 +44,7 @@ def weekly(days: int = 7) -> dict:
                 "kind": "promote_constraint",
                 "summary": f"同一理由出现 {len(rows)} 次：「{reason[:40]}」，是否升级为长期约束？",
                 "evidence": [f"user_feedback:{row['id']}" for row in rows],
-                "apply_with": f"python -m careeros signal promote --id {rows[0]['id']}",
+                "apply_with": f"python -m careeros signal promote --id {rows[0]['id']} --human-confirmed",
                 "requires_user_approval": True,
                 "confidence": "medium",
             })
@@ -122,15 +122,38 @@ def list_runs(limit: int = 10) -> list[dict]:
         return result
 
 
-def decide(run_id: int, *, status: str, note: str = "") -> dict:
-    """Record the outcome of a review without applying anything automatically."""
+def decide(run_id: int, *, status: str, note: str = "", accepted=None) -> dict:
+    """Record the outcome of a review without applying anything automatically.
+
+    ``accepted`` holds the proposal indexes the user approved. Without it an
+    ``approved`` run means "all of them"; an ``approved`` run with a subset is
+    stored as ``partially_approved`` instead of silently discarding the detail.
+    """
     if status not in STATUSES or status == "proposed":
         raise ValueError("status must be approved, partially_approved or rejected")
     with connect() as conn:
         row = conn.execute("SELECT * FROM reflection_runs WHERE id=?", (run_id,)).fetchone()
         if row is None:
             raise NotFoundError(f"reflection run #{run_id} not found")
+        proposals = deserialize(row["proposed_updates_json"])
+        if status == "rejected":
+            chosen = []
+        elif accepted is None:
+            chosen = list(range(len(proposals)))
+        else:
+            if isinstance(accepted, str):
+                parts = [p.strip() for p in accepted.split(",") if p.strip()]
+            else:
+                parts = list(accepted)
+            chosen = sorted({int(p) for p in parts if 0 <= int(p) < len(proposals)})
+        if status == "approved" and len(chosen) != len(proposals):
+            status = "partially_approved"
+        if status == "partially_approved" and not chosen:
+            status = "rejected"
+        approved = {"note": note, "accepted": chosen,
+                    "items": [proposals[i] for i in chosen]}
         conn.execute("UPDATE reflection_runs SET status=?, decided_at=?, approved_updates_json=? WHERE id=?",
-                     (status, now(), serialize({"note": note}), run_id))
-        audit(conn, "reflection.decided", "reflection_runs", run_id, status)
-        return {"run_id": run_id, "status": status, "note": note}
+                     (status, now(), serialize(approved), run_id))
+        audit(conn, "reflection.decided", "reflection_runs", run_id,
+              f"{status} {chosen}")
+        return {"run_id": run_id, "status": status, "note": note, "accepted": chosen}

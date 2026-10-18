@@ -4,7 +4,7 @@
 
 CSV requires headers `source,title,company,description`. JSON uses a top-level array of objects with the same required fields. Recommended fields: `source_id,location,url,listed_at,retrieved_at,salary,job_type,availability`.
 
-```powershell
+```text
 python -m careeros jobs import --csv data/private/jobs.csv
 python -m careeros jobs import --json data/private/jobs.json
 ```
@@ -13,7 +13,7 @@ URLs must be HTTP(S). `retrieved_at`, when supplied, is a non-future ISO-8601 ti
 
 ## Public adapters
 
-```powershell
+```text
 python -m careeros jobs sync --provider greenhouse --board <slug> [--company <name>] [--limit 100]
 python -m careeros jobs sync --provider lever --board <slug> [--company <name>] [--limit 100]
 ```
@@ -22,7 +22,7 @@ These commands make bounded public API reads and import the returned normalized 
 
 ## Audit
 
-```powershell
+```text
 python -m careeros jobs show --id 1
 python -m careeros jobs snapshots --id 1
 ```

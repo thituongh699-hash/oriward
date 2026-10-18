@@ -41,6 +41,8 @@ class LiepinTests(unittest.TestCase):
             result = discovery.search_local("产品经理", "苏州", "liepin")
         self.assertEqual(result["status"], "AUTH_REQUIRED")
         self.assertFalse(result["executed"])
+        self.assertEqual(result["setup"], "docs/LIEPIN_INTEGRATION.md")
+        self.assertEqual(result["credential_env"], "LIEPIN_USER_TOKEN")
         opener.assert_not_called()
 
     def test_only_fixed_search_endpoint_with_no_resume_and_no_assumed_success(self):
@@ -61,6 +63,11 @@ class LiepinTests(unittest.TestCase):
         with patch.object(liepin, "build_opener") as opener:
             opener.return_value.open.return_value = Response(b'{}')
             original = liepin.search("产品经理")
+            # Keep this cache-hit fixture inside the valid TTL interval. NTFS
+            # mtimes can be sub-microseconds ahead of datetime.now()'s precision.
+            for artifact in Path(self.tmp.name).glob("*.json"):
+                stat = artifact.stat()
+                os.utime(artifact, (stat.st_atime, stat.st_mtime - 1))
             cached = liepin.search("产品经理")
             self.assertEqual(opener.return_value.open.call_count, 1)
             self.assertTrue(cached["cache_hit"])

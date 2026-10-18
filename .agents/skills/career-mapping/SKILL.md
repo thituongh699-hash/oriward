@@ -5,6 +5,8 @@ description: Map approved experience evidence to adjacent, cross-industry and hy
 
 # Career mapping
 
+For students and recent graduates, distinguish exploratory directions, internships and graduate-entry roles. Check graduation-year and availability requirements against actual sources rather than assuming eligibility. Compare a small, revisable set of hypotheses and feasible validation tasks; the user's major or one rejection does not determine their career ceiling.
+
 1. Read `python -m careeros experience list` and relevant profile constraints. If the evidence base is thin, use `$career-discovery` first.
 2. Build `experience ID -> demonstrated action -> transferable ability -> occupation family`; keep interests and inferences visibly separate.
 3. Compare adjacent occupations, cross-industry analogues and hybrid roles. For each direction show supporting IDs, disconfirming evidence, hard gates, feasible entry proof, risks and search keywords.

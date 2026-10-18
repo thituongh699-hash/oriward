@@ -2,7 +2,7 @@
 
 核查时间：2026-10-18。官方授权入口：<https://www.liepin.com/mcp/auth>。
 该页面目前链接官方 CLI 项目 <https://github.com/liepin-tech-2026/liepin-cil>，
-没有展示可直接配置到 Codex 的标准 MCP server URL/transport。不能把授权页 URL 当作 MCP server。
+没有展示可直接配置到 Agent 的标准 MCP server URL/transport。不能把授权页 URL 当作 MCP server。
 核查源码提交：`858a62bd839d490e8745b7503961e4676a54b9d7`，CLI 版本 0.1.0。
 
 ## 可选扩展与条款（必读）
@@ -25,28 +25,25 @@
 - 只请求一页，30 秒超时、2 MiB 上限，禁止重定向转发凭证；没有批量轮询或自动重试。
 - 未配置全局 MCP、Skill 或模型服务。安装的官方 CLI 仅作为核查参考，运行项目适配器不依赖它。
 
-## 本机配置与使用（Windows）
+## 可选凭证辅助脚本
+
+Python 搜索适配器从 `LIEPIN_USER_TOKEN` 环境变量读取凭证，不依赖 PowerShell。由宿主的安全凭证管理机制注入该变量，并在用户明确启用后设置 `CAREEROS_ENABLE_LIEPIN=1`，即可执行 `python -m careeros jobs search --provider liepin`。项目不提供通用的持久化密钥存储；不要把真实 Token 写进终端历史、聊天或仓库。
+
+以下 `scripts/liepin.ps1` 只是 Windows DPAPI 凭证保存辅助脚本，不是主程序或该适配器的运行前提。
 
 先由本人登录官方授权页并生成 Token。页面显示凭证有效期 90 天，重新生成会使旧凭证失效；
 官方凭证也具备简历/投递能力，不能宣称凭证本身只有只读权限。本项目仅暴露搜索。
 
 ```powershell
-& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -File .\scripts\liepin.ps1 -Setup
-& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -File .\scripts\liepin.ps1 -Status
-& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -File .\scripts\liepin.ps1 -Query '产品经理' -Location '苏州'
+pwsh -NoProfile -File ./scripts/liepin.ps1 -Setup
+pwsh -NoProfile -File ./scripts/liepin.ps1 -Status
+pwsh -NoProfile -File ./scripts/liepin.ps1 -Query '产品经理' -Location '苏州'
 ```
 
 配置过程隐藏输入，用 Windows 当前用户 DPAPI 加密保存到忽略目录 `data/private/liepin-token.dpapi`。
 不把 Token 放入聊天、命令行参数、源码、输出或普通配置文件。`-Status` 只说明本地是否有配置，不证明远程有效。
 脚本默认使用 PATH 上的 `python`；换环境用 `-Python <绝对路径>` 指定解释器。
 只在子进程执行期间通过 `LIEPIN_USER_TOKEN` 传递，并临时设置 `CAREEROS_ENABLE_LIEPIN=1`，随后恢复原环境变量，不改变 PATH。
-已有受控环境变量时，也可直接执行：
-
-```powershell
-$env:CAREEROS_ENABLE_LIEPIN = '1'   # 显式启用可选扩展
-python -m careeros jobs search --provider liepin --query '产品经理' --location '苏州'
-```
-
 官方 CLI 的 `setup` 会调用 `/mcp/get-resume` 验证凭证，所以本项目没有复用该流程。
 原始响应与缓存位于 `data/private/liepin-search/`，供首次实测后确认业务状态、字段与入库契约。
 

@@ -44,7 +44,7 @@ CareerOS 使用公开 JSON postings 的读取模式，映射职位文本、分�
 ## 对 CareerOS 的结论
 
 1. 使用 adapter -> normalized record -> immutable snapshot 的窄接口，保留来源特有原始字段以便审计。
-2. CLI 负责确定性导入、哈希和版本；Codex 负责 JD 语义和证据判断。
+2. CLI 负责确定性导入、哈希和版本；Agent 负责 JD 语义和证据判断。
 3. 简历、申请、反馈、评审必须绑定 exact version；改写不能覆盖原版或继承旧等级。
 4. 公开 adapter 逐个加入并验证；国内平台当前只接受用户授权读取/导出 JSON/CSV，不声称存在实时 BOSS 授权 scraper。
 5. 不因上游 README 宣称某功能就把它列为 CareerOS 已交付；功能和 live 行为必须在本项目测试中单独验证。
