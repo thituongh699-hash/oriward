@@ -18,7 +18,7 @@ jobs:
     name: ${{ matrix.os }} / py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     env:
-      ORIWARD_DB: ${{ runner.temp }}/oriward-ci/oriward.sqlite3
+      ORIWARD_DB: ${{ github.workspace }}/outputs/ci-state/oriward.sqlite3
     strategy:
       fail-fast: false
       matrix:
