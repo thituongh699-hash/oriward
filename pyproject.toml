@@ -23,10 +23,12 @@ classifiers = [
 # No third-party runtime dependencies: the CLI is standard library only.
 dependencies = []
 
-# Fill these in before publishing (the project has no public URL yet).
-# [project.urls]
-# Homepage = "https://github.com/<your-account>/oriward"
-# Issues = "https://github.com/<your-account>/oriward/issues"
+# Repository URLs. Update the account/organisation if the remote differs.
+[project.urls]
+Homepage = "https://github.com/wdele/oriward"
+Repository = "https://github.com/wdele/oriward"
+Issues = "https://github.com/wdele/oriward/issues"
+Changelog = "https://github.com/wdele/oriward/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["ruff>=0.6"]
