@@ -138,7 +138,13 @@ Agent 可能建议：“先花一小时整理数据清洗案例。”因为这�
 
 ## 开始使用
 
-主程序需要 **Python 3.10+**，只用标准库，无需先安装项目。将完整源码交给能读取文件、执行终端命令的 Agent，发送：
+主程序需要 **Python 3.10+**，只用标准库，无需先安装项目。先克隆仓库（也可在本页 Code 菜单下载 ZIP）：
+
+```bash
+git clone https://github.com/thituongh699-hash/oriward.git
+```
+
+在自己的 Agent 工具中打开克隆后的 `oriward` 文件夹，确保工具可以读取本地文件、执行终端命令，然后发送：
 
 ```text
 请读取 AGENTS.md，按首次使用流程启动 Oriward。

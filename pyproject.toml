@@ -25,10 +25,10 @@ dependencies = []
 
 # Repository URLs. Update the account/organisation if the remote differs.
 [project.urls]
-Homepage = "https://github.com/wdele/oriward"
-Repository = "https://github.com/wdele/oriward"
-Issues = "https://github.com/wdele/oriward/issues"
-Changelog = "https://github.com/wdele/oriward/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/thituongh699-hash/oriward"
+Repository = "https://github.com/thituongh699-hash/oriward"
+Issues = "https://github.com/thituongh699-hash/oriward/issues"
+Changelog = "https://github.com/thituongh699-hash/oriward/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["ruff>=0.6"]
