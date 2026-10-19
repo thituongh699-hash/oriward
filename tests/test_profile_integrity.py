@@ -5,17 +5,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import services
-from careeros.core import assertions, twin, context
-from careeros.core.profile import read_profile
-from careeros.db import connect
+from oriward import services
+from oriward.core import assertions, twin, context
+from oriward.core.profile import read_profile
+from oriward.db import connect
 
 
 class ProfileIntegrityTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        env = patch.dict(os.environ, {"CAREEROS_DB": str(Path(self.tmp.name) / "db.sqlite3")})
+        env = patch.dict(os.environ, {"ORIWARD_DB": str(Path(self.tmp.name) / "db.sqlite3")})
         env.start()
         self.addCleanup(env.stop)
 
@@ -34,7 +34,7 @@ class ProfileIntegrityTest(unittest.TestCase):
     def test_sync_does_not_resurrect_revised_or_retracted_legacy_claims(self):
         for action in ("revise", "retract"):
             with self.subTest(action=action):
-                with patch.dict(os.environ, {"CAREEROS_DB": str(Path(self.tmp.name) / f"{action}.sqlite3")}):
+                with patch.dict(os.environ, {"ORIWARD_DB": str(Path(self.tmp.name) / f"{action}.sqlite3")}):
                     self._legacy_profile(values=["自主性"])
                     twin.sync_legacy()
                     claim = self._claims("value")[0]

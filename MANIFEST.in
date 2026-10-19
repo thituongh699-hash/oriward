@@ -1,0 +1,16 @@
+include AGENTS.md CHANGELOG.md LICENSE README.md pyproject.toml
+include .gitignore .gitattributes
+recursive-include .agents *.md *.py
+recursive-include docs *.md
+recursive-include docs/assets *.png
+recursive-include scripts *.py *.ps1 *.sh *.mjs
+recursive-include tests *.py
+recursive-include data/examples *.json *.csv
+recursive-include .github *.yml
+recursive-include .codex *.toml
+prune data/private
+prune outputs
+prune .workbuddy
+prune .venv
+prune .git
+global-exclude __pycache__ *.py[cod] *.sqlite3* *.db *.db-* .env .env.* *.dpapi

@@ -5,15 +5,15 @@ import os
 import tempfile
 import unittest
 from unittest.mock import patch
-from careeros import cli, discovery as d, services
-from careeros.db import now
+from oriward import cli, discovery as d, services
+from oriward.db import now
 
 
 class BrowserWorkflowTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        env = patch.dict(os.environ, {"CAREEROS_DB": tmp.name + "/browser.sqlite3"})
+        env = patch.dict(os.environ, {"ORIWARD_DB": tmp.name + "/browser.sqlite3"})
         env.start()
         self.addCleanup(env.stop)
 

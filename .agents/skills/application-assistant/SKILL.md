@@ -6,9 +6,9 @@ description: Assemble local application packets, bind the exact resume version, 
 # Application assistant
 
 1. Inspect the job, `resume history` and latest review. Verify the job/resume relationship, factual approval and remaining risks.
-2. Assemble the official application URL, exact resume ID/hash, approved answers and unresolved questions locally. Run `python -m careeros application prepare --job-id <id> --resume-id <id>`; it creates `READY_FOR_USER` only.
+2. Assemble the official application URL, exact resume ID/hash, approved answers and unresolved questions locally. Run `python -m oriward application prepare --job-id <id> --resume-id <id>`; it creates `READY_FOR_USER` only.
 3. Give manual submission steps. Do not log in, upload, final-click, contact a recruiter or bypass CAPTCHA.
-4. Only after the user directly confirms actual submission of this exact version, run `python -m careeros application record --id <id> --status SUBMITTED --human-confirmed --note "User confirmed actual submission"`. Never infer submission from a prepared packet.
+4. Only after the user directly confirms actual submission of this exact version, run `python -m oriward application record --id <id> --status SUBMITTED --human-confirmed --note "User confirmed actual submission"`. Never infer submission from a prepared packet.
 5. Record later supported states from evidence. Route feedback through `feedback save`; actual feedback binds the application and exact sent resume. Saving feedback changes neither status nor grade automatically.
 
 Report IDs, exact document version, status, evidence and pending user action. Keep ready, submitted and employer acknowledged distinct.

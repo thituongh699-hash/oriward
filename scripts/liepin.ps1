@@ -23,16 +23,16 @@ if ($Setup) {
     ConvertFrom-SecureString $secureToken | Set-Content -LiteralPath $secretFile -Encoding utf8
     $secureToken.Dispose()
     Write-Host '凭证已加密保存。本地配置完成，尚未执行远程搜索。'
-    Write-Host '运行搜索前需设置 CAREEROS_ENABLE_LIEPIN=1（本脚本会自动设置）。'
+    Write-Host '运行搜索前需设置 ORIWARD_ENABLE_LIEPIN=1（本脚本会自动设置）。'
     exit 0
 }
 if ($Status) {
-    [pscustomobject]@{ configured = (Test-Path -LiteralPath $secretFile); scope = 'job_search_only'; remote_verified = $false; extension_enabled = ($env:CAREEROS_ENABLE_LIEPIN -eq '1') } | ConvertTo-Json
+    [pscustomobject]@{ configured = (Test-Path -LiteralPath $secretFile); scope = 'job_search_only'; remote_verified = $false; extension_enabled = ($env:ORIWARD_ENABLE_LIEPIN -eq '1') } | ConvertTo-Json
     exit 0
 }
 if (-not (Test-Path -LiteralPath $secretFile)) { throw '尚未配置凭证，请先运行 scripts\liepin.ps1 -Setup' }
 $oldToken = $env:LIEPIN_USER_TOKEN
-$oldEnable = $env:CAREEROS_ENABLE_LIEPIN
+$oldEnable = $env:ORIWARD_ENABLE_LIEPIN
 $oldUtf8 = $env:PYTHONUTF8
 $oldBytecode = $env:PYTHONDONTWRITEBYTECODE
 $secretPtr = [IntPtr]::Zero
@@ -41,16 +41,16 @@ try {
     $secureToken = (Get-Content -LiteralPath $secretFile -Raw).Trim() | ConvertTo-SecureString
     $secretPtr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
     $env:LIEPIN_USER_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretPtr)
-    $env:CAREEROS_ENABLE_LIEPIN = '1'
+    $env:ORIWARD_ENABLE_LIEPIN = '1'
     $env:PYTHONUTF8 = '1'
     $env:PYTHONDONTWRITEBYTECODE = '1'
-    $searchArgs = @('-m', 'careeros', 'jobs', 'search', '--provider', 'liepin', '--query', $Query, '--location', $Location)
+    $searchArgs = @('-m', 'oriward', 'jobs', 'search', '--provider', 'liepin', '--query', $Query, '--location', $Location)
     if ($Refresh) { $searchArgs += '--refresh' }
     & $Python @searchArgs
     $resultCode = $LASTEXITCODE
 } finally {
     $env:LIEPIN_USER_TOKEN = $oldToken
-    $env:CAREEROS_ENABLE_LIEPIN = $oldEnable
+    $env:ORIWARD_ENABLE_LIEPIN = $oldEnable
     $env:PYTHONUTF8 = $oldUtf8
     $env:PYTHONDONTWRITEBYTECODE = $oldBytecode
     if ($secretPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretPtr) }

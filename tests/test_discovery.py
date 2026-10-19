@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import discovery as d, sources, services, cli
-from careeros.db import now, connect
+from oriward import discovery as d, sources, services, cli
+from oriward.db import now
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -16,8 +16,8 @@ class DiscoveryTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        env = patch.dict(os.environ, {"CAREEROS_DB": str(self.root / "test.sqlite3"),
-                                     "CAREEROS_CACHE_DIR": str(self.root / "cache")})
+        env = patch.dict(os.environ, {"ORIWARD_DB": str(self.root / "test.sqlite3"),
+                                     "ORIWARD_CACHE_DIR": str(self.root / "cache")})
         env.start(); self.addCleanup(env.stop)
 
     def lead(self, **overrides):
@@ -80,7 +80,7 @@ class DiscoveryTests(unittest.TestCase):
             d.promote_lead(lid, dict(row, description="列表摘要", retrieved_at=now(), read_method="user_copy", content_complete=True))
 
     def test_local_search_persists_only_leads(self):
-        with patch("careeros.public_search.search_zhiye", return_value={
+        with patch("oriward.public_search.search_zhiye", return_value={
             "records": [{"title": "数据分析", "company": "虚构", "location": "上海", "url": "https://zhiye.page/jobs/job_demo"}],
             "fetched_at": now(), "cache_hit": False, "search_url": "https://zhiye.page/jobs?q=test"}):
             result = d.search_local("数据分析", "上海")
@@ -105,7 +105,7 @@ class DiscoveryTests(unittest.TestCase):
     def test_old_query_cache_preserves_newer_lead_and_other_results(self):
         url = "https://zhiye.page/jobs/job_demo"
         d.import_leads([self.lead(provider="zhiye", url=url, title="更新后的岗位")])
-        with patch("careeros.public_search.search_zhiye", return_value={
+        with patch("oriward.public_search.search_zhiye", return_value={
             "records": [{"title": "旧标题", "url": url},
                         {"title": "另一岗位", "url": "https://zhiye.page/jobs/job_other"}],
             "fetched_at": "2020-01-01T00:00:00+00:00", "cache_hit": True, "search_url": "https://zhiye.page/jobs?q=test"}):

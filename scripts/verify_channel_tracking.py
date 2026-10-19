@@ -47,13 +47,13 @@ def main() -> int:
     args = parser.parse_args()
     folder = Path(args.output).resolve()
     folder.mkdir(parents=True, exist_ok=False)
-    environment = dict(os.environ, CAREEROS_DB=str(folder / "verify.sqlite3"),
-                       CAREEROS_OUTPUT_DIR=str(folder / "resumes"),
-                       CAREEROS_OFFICIAL_CACHE=str(folder / "cache"),
+    environment = dict(os.environ, ORIWARD_DB=str(folder / "verify.sqlite3"),
+                       ORIWARD_OUTPUT_DIR=str(folder / "resumes"),
+                       ORIWARD_OFFICIAL_CACHE=str(folder / "cache"),
                        PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1")
 
     def run(*argv):
-        result = subprocess.run([sys.executable, "-m", "careeros", *map(str, argv)], cwd=ROOT,
+        result = subprocess.run([sys.executable, "-m", "oriward", *map(str, argv)], cwd=ROOT,
                                 env=environment, capture_output=True, text=True, encoding="utf-8")
         if result.returncode:
             raise RuntimeError(f"{' '.join(map(str, argv))}: {result.stderr}")

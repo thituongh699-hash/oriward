@@ -1,7 +1,7 @@
 """Optional extension: bounded job-search-only client for Liepin's open endpoint.
 
 This module is NOT loaded by default. It only runs after the caller sets
-``CAREEROS_ENABLE_LIEPIN=1``; see ``careeros/extras/__init__.py`` and
+``ORIWARD_ENABLE_LIEPIN=1``; see ``oriward/extras/__init__.py`` and
 ``docs/LIEPIN_INTEGRATION.md``.
 
 Scope is deliberately narrow:
@@ -26,6 +26,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.parse import urlsplit, urlunsplit
 
 from ..db import PROJECT_ROOT
+from ..legacy import environment
 from ..services import ValidationError
 
 ENDPOINT = "https://open-agent.liepin.com/mcp/search-job"
@@ -99,7 +100,7 @@ def search(query, location="", limit=10, refresh=False):
         payload["address"] = location.strip()
     # Account-separated cache; no credential or hash of the credential is output.
     key = hashlib.sha256((token + json.dumps(payload, sort_keys=True)).encode()).hexdigest()
-    root = Path(os.environ.get("CAREEROS_LIEPIN_CACHE", PROJECT_ROOT / "data/private/liepin-search"))
+    root = Path(environment("ORIWARD_LIEPIN_CACHE", PROJECT_ROOT / "data/private/liepin-search"))
     cache = root / (key + ".json")
     stamp = datetime.now(timezone.utc)
     if not refresh and cache.is_file() and 0 <= stamp.timestamp() - cache.stat().st_mtime < 900:

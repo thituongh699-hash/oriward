@@ -54,7 +54,7 @@ class DocumentBudgetTests(unittest.TestCase):
         owners = defaultdict(set)
         for path in [AGENTS, *SKILLS, *REFERENCES]:
             text = path.read_text(encoding="utf-8")
-            for command in re.findall(r"python -m careeros [a-z-]+(?: [a-z-]+)?", text):
+            for command in re.findall(r"python -m oriward [a-z-]+(?: [a-z-]+)?", text):
                 owners[command].add(str(path))
         crowded = {command: sorted(paths) for command, paths in owners.items() if len(paths) > 3}
         self.assertEqual(crowded, {}, f"commands documented in more than three agent-facing files: {crowded}")

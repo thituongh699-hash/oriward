@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import services
@@ -110,6 +111,7 @@ def draft_analysis(job_id):
             "quote": quote,
             "match": "unknown",
             "experience_ids": [],
+            "evidence_refs": [],
             "rationale": "Preliminary extraction only; compare this JD line with approved evidence.",
         })
         unknowns.append({
@@ -126,6 +128,13 @@ def draft_analysis(job_id):
         "confidence": "low",
         "job_sha256": _job_sha256(job),
         "template_status": "PRELIMINARY_UNKNOWN_MATCHES",
+        "role_focus": {
+            "mission": "",
+            "hiring_motive": {"fact": "", "inference": "", "sources": []},
+            "core_deliverables": [],
+            "resume_themes": [],
+            "interview_themes": [],
+        },
     }
 
 
@@ -161,6 +170,7 @@ def _validate_company_context(items):
 
 
 def _verified_experience(db, experience_id):
+    from . import experience_library
     row = one(db, "experiences", int(experience_id))
     experience = deserialize(row["data"])
     if not experience.get("approved_for_resume"):
@@ -168,13 +178,144 @@ def _verified_experience(db, experience_id):
     evidence = experience.get("evidence")
     if not isinstance(evidence, list) or not any(
         isinstance(item, dict)
-        and item.get("status") in {"user_confirmed", "document_verified"}
+        and item.get("status") in {"user_stated", "user_confirmed", "document_verified"}
         and isinstance(item.get("claim"), str)
         and item["claim"].strip()
         for item in evidence
     ):
         raise services.ValidationError(f"Experience {experience_id} lacks verified non-empty evidence")
+    experience_library.validate_for_resume(db, int(experience_id))
     return experience
+
+
+def _fingerprint(value):
+    return hashlib.sha256(serialize(value).encode("utf-8")).hexdigest()
+
+
+def _validate_evidence_refs(db, refs, label):
+    """Resolve evidence against current records; save immutable dependency tokens.
+
+    Document IDs refer to document-verified ledger assertions, not invented work
+    experience. A local document's bytes are also bound when source_ref is a path.
+    """
+    normalized = []
+    for raw in _require_list(refs, label):
+        item = _require_dict(raw, label)
+        kind = item.get("type")
+        if kind not in {"experience_version", "assertion", "document"}:
+            raise services.ValidationError(f"{label} type must be experience_version|assertion|document")
+        identifier = item.get("id")
+        if isinstance(identifier, bool) or not isinstance(identifier, int) or identifier < 1:
+            raise services.ValidationError(f"{label} id must be a positive integer")
+        ref = {"type": kind, "id": identifier}
+        if kind == "experience_version":
+            value = _verified_experience(db, identifier)
+            version = value.get("version", 1)
+            if "version" in item and item["version"] != version:
+                raise services.ValidationError(f"{label} cites a stale experience version")
+            ref["version"] = version
+        else:
+            row = db.execute("SELECT * FROM user_assertions WHERE id=?", (identifier,)).fetchone()
+            if row is None:
+                raise services.ValidationError(f"{label} assertion {identifier} not found")
+            value = dict(row)
+            if (row["epistemic_status"] not in {"user_stated", "user_confirmed", "document_verified"}
+                    or row["epistemic_status"] == "user_stated" and row["confidence"] == "low"
+                    or row["source_type"] in {"model_inference", "reflection", "external_source"}
+                    or row["valid_to"] or row["superseded_by_id"] or row["retracted_at"]):
+                raise services.ValidationError(f"{label} requires current clear self-report, confirmed or document-verified assertions")
+            if row["assertion_type"] not in {"fact", "constraint"}:
+                raise services.ValidationError(f"{label} requires factual or constraint evidence")
+            if row["valid_from"] and row["valid_from"] > now():
+                raise services.ValidationError(f"{label} assertion is not yet valid")
+            if kind == "document":
+                if row["source_type"] != "document" or row["epistemic_status"] != "document_verified" or not row["source_ref"].strip():
+                    raise services.ValidationError(f"{label} document requires a document-verified source assertion")
+                source = row["source_ref"]
+                if Path(source).is_absolute():
+                    path = Path(source)
+                    if not path.is_file():
+                        raise services.ValidationError(f"{label} document source is missing")
+                    ref["document_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+                    if item.get("document_sha256", ref["document_sha256"]) != ref["document_sha256"]:
+                        raise services.ValidationError(f"{label} document source is stale")
+        ref["sha256"] = _fingerprint(value)
+        if item.get("sha256", ref["sha256"]) != ref["sha256"]:
+            raise services.ValidationError(f"{label} evidence is stale")
+        if ref not in normalized:
+            normalized.append(ref)
+    return normalized
+
+
+def _requirement_evidence(db, item, label, match):
+    ids = _require_list(item.get("experience_ids", []), f"{label}.experience_ids")
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 1 for value in ids):
+        raise services.ValidationError(f"{label} experience IDs must be positive integers")
+    refs = list(_require_list(item.get("evidence_refs", []), f"{label}.evidence_refs"))
+    for identifier in dict.fromkeys(ids):
+        if not any(isinstance(ref, dict) and ref.get("type") == "experience_version" and ref.get("id") == identifier for ref in refs):
+            refs.append({"type": "experience_version", "id": identifier})
+    refs = _validate_evidence_refs(db, refs, f"{label}.evidence_refs")
+    if match == "met" and not refs:
+        raise services.ValidationError(f"Met requirement {label} needs evidence_refs or experience IDs")
+    if match == "unknown" and refs:
+        raise services.ValidationError(f"Unknown requirement {label} must not claim verified evidence coverage")
+    ids = list(dict.fromkeys(ref["id"] for ref in refs if ref["type"] == "experience_version"))
+    return ids, refs
+
+
+COMPOUND_SEPARATOR = r"\band\b|(?<!参)与|及(?!时|格)|和(?!平|谐)|、|[;&；]"
+
+
+def _is_compound(text):
+    # Participation (参与), timeliness (及时) and passing (及格) are words,
+    # not task conjunctions. Semantic decomposition remains the Agent's job.
+    return bool(re.search(COMPOUND_SEPARATOR, text, re.IGNORECASE))
+
+
+def _compound_parts(text):
+    return [part.strip(" .，,。") for part in re.split(COMPOUND_SEPARATOR, text, flags=re.IGNORECASE)
+            if part.strip(" .，,。")]
+
+
+def _validate_focus(raw, requirement_ids):
+    if raw is None:
+        return None
+    value = _require_dict(raw, "role_focus")
+    mission = value.get("mission", "")
+    if not isinstance(mission, str):
+        raise services.ValidationError("role_focus.mission must be a string")
+    motive = _require_dict(value.get("hiring_motive", {}), "role_focus.hiring_motive")
+    for key in ("fact", "inference"):
+        if not isinstance(motive.get(key, ""), str):
+            raise services.ValidationError(f"hiring_motive.{key} must be a string")
+    sources = _validate_company_context(motive.get("sources", []))
+    if motive.get("fact", "").strip() and not sources:
+        raise services.ValidationError("A hiring motive fact requires sources; otherwise retain it as inference")
+    deliverables = _require_list(value.get("core_deliverables", []), "role_focus.core_deliverables")
+    active = bool(mission.strip() or deliverables)
+    if active and (not mission.strip() or not 2 <= len(deliverables) <= 4):
+        raise services.ValidationError("role_focus needs a mission and 2-4 core deliverables")
+    normalized = []
+    seen = set()
+    for item in deliverables:
+        item = _require_dict(item, "core_deliverable")
+        identifier = _nonempty_string(item.get("id"), "core_deliverable.id")
+        if identifier in seen:
+            raise services.ValidationError("Duplicate core deliverable id")
+        seen.add(identifier)
+        refs = _require_list(item.get("requirement_ids"), "core_deliverable.requirement_ids")
+        if not refs or any(ref not in requirement_ids for ref in refs):
+            raise services.ValidationError("Core deliverables must reference known requirements")
+        normalized.append({"id": identifier, "text": _nonempty_string(item.get("text"), "core_deliverable.text"),
+                           "requirement_ids": list(dict.fromkeys(refs))})
+    result = {"mission": mission.strip(), "hiring_motive": {
+        "fact": motive.get("fact", "").strip(), "inference": motive.get("inference", "").strip(), "sources": sources},
+        "core_deliverables": normalized}
+    for key in ("resume_themes", "interview_themes"):
+        themes = _require_list(value.get(key, []), f"role_focus.{key}")
+        result[key] = [_nonempty_string(theme, f"role_focus.{key}") for theme in themes]
+    return result
 
 
 def _validate_requirements(db, requirements, description):
@@ -199,18 +340,45 @@ def _validate_requirements(db, requirements, description):
             raise services.ValidationError(f"Requirement {requirement_id} kind must be hard_gate|core|preferred")
         if match not in MATCHES:
             raise services.ValidationError(f"Requirement {requirement_id} match must be met|gap|unknown")
-        experience_ids = _require_list(item.get("experience_ids"), f"requirements[{index}].experience_ids")
-        try:
-            experience_ids = list(dict.fromkeys(int(value) for value in experience_ids))
-        except (TypeError, ValueError) as exc:
-            raise services.ValidationError(f"Requirement {requirement_id} experience IDs must be integers") from exc
-        if match == "met" and not experience_ids:
-            raise services.ValidationError(f"Met requirement {requirement_id} needs experience IDs")
-        if match == "met":
-            for experience_id in experience_ids:
-                _verified_experience(db, experience_id)
-        elif experience_ids:
-            raise services.ValidationError(f"Only met requirement {requirement_id} may cite experience IDs")
+        components = _require_list(item.get("components", []), f"requirements[{index}].components")
+        component_ids = set()
+        normalized_components = []
+        for raw_component in components:
+            component = _require_dict(raw_component, "component")
+            component_id = _nonempty_string(component.get("id"), "component.id")
+            if component_id in component_ids:
+                raise services.ValidationError("Duplicate component id")
+            component_ids.add(component_id)
+            component_text = _nonempty_string(component.get("text"), "component.text")
+            component_quote = _nonempty_string(component.get("quote"), "component.quote")
+            if component_quote not in quote:
+                raise services.ValidationError("Component quote must be an exact substring of its parent JD quote")
+            component_match = component.get("match")
+            if component_match not in MATCHES:
+                raise services.ValidationError("Component match must be met|gap|unknown")
+            if component_match == "met" and _is_compound(component_text):
+                raise services.ValidationError("Split compound components into atomic requirements")
+            component_exp, component_refs = _requirement_evidence(db, component, component_id, component_match)
+            normalized_components.append({"id": component_id, "text": component_text, "quote": component_quote,
+                "match": component_match, "experience_ids": component_exp, "evidence_refs": component_refs,
+                "rationale": _nonempty_string(component.get("rationale"), "component.rationale")})
+        if normalized_components:
+            if match == "met" and (len(normalized_components) < 2 or any(c["match"] != "met" for c in normalized_components)):
+                raise services.ValidationError("Met compound requirement needs complete explicit component coverage")
+            if match == "met" and any(not any(part in c["quote"] or part in c["text"] for c in normalized_components)
+                                      for part in _compound_parts(text)):
+                raise services.ValidationError("Compound component coverage omits part of the requirement")
+            # Parent aggregate evidence never substitutes for missing component evidence.
+            experience_ids = list(dict.fromkeys(i for c in normalized_components for i in c["experience_ids"]))
+            evidence_refs = []
+            for component in normalized_components:
+                for ref in component["evidence_refs"]:
+                    if ref not in evidence_refs:
+                        evidence_refs.append(ref)
+        else:
+            if match == "met" and _is_compound(text):
+                raise services.ValidationError("Compound requirements need explicit atomic components before met")
+            experience_ids, evidence_refs = _requirement_evidence(db, item, requirement_id, match)
         rationale = _nonempty_string(item.get("rationale"), f"requirements[{index}].rationale")
         normalized.append({
             "id": requirement_id,
@@ -219,6 +387,8 @@ def _validate_requirements(db, requirements, description):
             "quote": quote,
             "match": match,
             "experience_ids": experience_ids,
+            "evidence_refs": evidence_refs,
+            "components": normalized_components,
             "rationale": rationale,
         })
     return normalized
@@ -245,11 +415,12 @@ def _vacancy_status(job, company_context):
     return closed, current
 
 
-def _analysis_outcome(requirements, unknowns, company_context, job):
+def _analysis_outcome(requirements, unknowns, company_context, job, role_focus=None):
     closed, current = _vacancy_status(job, company_context)
+    critical = {ref for item in (role_focus or {}).get("core_deliverables", []) for ref in item["requirement_ids"]}
     if closed or any(item["kind"] == "hard_gate" and item["match"] == "gap" for item in requirements):
         recommendation = "skip"
-    elif any(item["kind"] == "core" and item["match"] == "gap" for item in requirements):
+    elif any(item["kind"] == "core" and item["match"] == "gap" and (not critical or item["id"] in critical) for item in requirements):
         recommendation = "upskill"
     elif any(item["kind"] in {"hard_gate", "core"} and item["match"] == "unknown" for item in requirements):
         recommendation = "explore"
@@ -283,7 +454,8 @@ def save_analysis(data):
     job = services.get_job(job_id)
     with connect() as db:
         requirements = _validate_requirements(db, data["requirements"], _description(job))
-        recommendation, confidence = _analysis_outcome(requirements, unknowns, company_context, job)
+        role_focus = _validate_focus(data.get("role_focus"), {item["id"] for item in requirements})
+        recommendation, confidence = _analysis_outcome(requirements, unknowns, company_context, job, role_focus)
         saved = {
             "job_id": job_id,
             "requirements": requirements,
@@ -294,6 +466,8 @@ def save_analysis(data):
             "confidence": confidence,
             "job_sha256": _job_sha256(job),
         }
+        if role_focus is not None:
+            saved["role_focus"] = role_focus
         cursor = db.execute(
             "INSERT INTO job_analyses(job_id,data,created_at) VALUES (?,?,?)",
             (job_id, serialize(saved), now()),
@@ -316,34 +490,31 @@ def analysis_packet(job_id):
     """Return the current JD, approved evidence, and latest structured analysis."""
     job_id = int(job_id)
     job = services.get_job(job_id)
+    from . import experience_library
     with connect() as db:
-        experiences = []
-        for row in db.execute("SELECT id,data FROM experiences ORDER BY id"):
-            data = deserialize(row["data"])
-            if not data.get("approved_for_resume"):
-                continue
-            verified = [
-                item for item in data.get("evidence", [])
-                if isinstance(item, dict)
-                and item.get("status") in {"user_confirmed", "document_verified"}
-                and isinstance(item.get("claim"), str)
-                and item["claim"].strip()
-            ]
-            if verified:
-                experiences.append({
-                    "id": row["id"],
-                    "event": data.get("event", ""),
-                    "context": data.get("context", ""),
-                    "actions": data.get("actions", []),
-                    "outcomes": data.get("outcomes", []),
-                    "evidence": verified,
-                })
+        evidence_index = experience_library.index(conn=db, budget=2200)
+        experiences = [item for item in evidence_index["items"] if item["approved"]]
         latest = _latest_structured_analysis(db, job_id)
+        assertion_evidence = []
+        assertion_count = db.execute("SELECT count(*) FROM user_assertions WHERE valid_to='' AND epistemic_status IN ('user_stated','user_confirmed','document_verified') AND assertion_type IN ('fact','constraint')").fetchone()[0]
+        for row in db.execute("SELECT * FROM user_assertions WHERE valid_to='' AND epistemic_status IN ('user_stated','user_confirmed','document_verified') AND assertion_type IN ('fact','constraint') ORDER BY id DESC LIMIT 20"):
+            try:
+                ref = _validate_evidence_refs(db, [{"type": "assertion", "id": row["id"]}], "assertion_evidence")[0]
+            except services.ValidationError:
+                continue
+            assertion_evidence.append({"evidence_ref": ref, "subject": row["subject"], "predicate": row["predicate"],
+                                       "summary": str(deserialize(row["value_json"]))[:180],
+                                       "epistemic_status": row["epistemic_status"],
+                                       "detail_command": f"context inspect --assertion-id {row['id']}"})
     return {
         "job": {"id": job_id, **job},
         "job_sha256": _job_sha256(job),
         "approved_experiences": experiences,
+        "experience_index": evidence_index,
+        "assertion_evidence": assertion_evidence,
+        "assertion_evidence_scope": {"total": assertion_count, "shown": len(assertion_evidence), "complete": assertion_count == len(assertion_evidence)},
         "latest_analysis": latest,
+        "role_focus": latest["data"].get("role_focus") if latest else None,
     }
 
 
@@ -388,6 +559,8 @@ def review_packet(resume_id):
     resume_id = int(resume_id)
     with connect() as db:
         resume = one(db, "resumes", resume_id)
+        from .experience_library import ensure_resume_current
+        ensure_resume_current(db, resume)
         resume_data = dict(resume)
         job = services.get_job(resume["job_id"])
         latest = _latest_structured_analysis(db, resume["job_id"])
@@ -413,6 +586,7 @@ def review_packet(resume_id):
         "job": {"id": resume["job_id"], **job},
         "job_sha256": _job_sha256(job),
         "latest_analysis": latest,
+        "role_focus": latest["data"].get("role_focus") if latest else None,
         "revision": revision,
         "prior_reviews": prior,
         "review_template": _review_template(resume_id, analysis_id, resume["sha256"]),
@@ -433,7 +607,7 @@ def _load_analysis(db, analysis_id):
     return row, data
 
 
-def _validate_review_shape(data, requirement_ids):
+def _validate_review_shape(data, requirement_ids, db=None):
     stages = _require_dict(data.get("stages"), "stages")
     missing = set(STAGES) - set(stages)
     extra = set(stages) - set(STAGES)
@@ -463,6 +637,14 @@ def _validate_review_shape(data, requirement_ids):
             "questions": questions,
             "requirement_ids": refs,
         }
+        if stage == "competition":
+            basis = item.get("evidence_basis", "hypothetical")
+            if basis not in {"hypothetical", "candidate_pool", "jd_gap"}:
+                raise services.ValidationError("competition.evidence_basis must be hypothetical|candidate_pool|jd_gap")
+            sources = _validate_company_context(item.get("sources", []))
+            if basis == "candidate_pool" and not sources:
+                raise services.ValidationError("Candidate-pool competition judgments require sources")
+            normalized_stages[stage].update(evidence_basis=basis, sources=sources)
     if covered != requirement_ids:
         raise services.ValidationError(f"Review stages do not cover requirements: {sorted(requirement_ids - covered)}")
 
@@ -499,7 +681,17 @@ def _validate_review_shape(data, requirement_ids):
             "evidence": _nonempty_string(item.get("evidence"), f"red_findings[{index}].evidence"),
             "requirement_ids": list(dict.fromkeys(refs)),
             "resolved": resolved,
+            "evidence_basis": item.get("evidence_basis", "requirement_gap" if severity == "blocker" else "observed"),
+            "evidence_refs": _validate_evidence_refs(db, item.get("evidence_refs", []), f"red_findings[{index}].evidence_refs") if db is not None else [],
+            "sources": _validate_company_context(item.get("sources", [])),
         })
+        if normalized_findings[-1]["evidence_basis"] not in {
+                "observed", "requirement_gap", "verified_disqualification", "hypothetical", "candidate_pool"}:
+            raise services.ValidationError("Finding evidence_basis is invalid")
+        if normalized_findings[-1]["evidence_basis"] == "verified_disqualification" and not normalized_findings[-1]["evidence_refs"]:
+            raise services.ValidationError("Verified disqualification requires typed evidence_refs")
+        if normalized_findings[-1]["evidence_basis"] == "candidate_pool" and not normalized_findings[-1]["sources"]:
+            raise services.ValidationError("Candidate-pool finding requires sources")
 
     blue_actions = _require_list(data.get("blue_actions", []), "blue_actions")
     normalized_actions = []
@@ -533,8 +725,26 @@ def _validate_review_shape(data, requirement_ids):
 
 def _grade_review(analysis, stages, red_findings, company_mismatch, job, *, revision_pending=False):
     requirements = analysis["requirements"]
+    requirement_map = {item["id"]: item for item in requirements}
+    def known_gap(refs):
+        return any(requirement_map[ref]["match"] == "gap" for ref in refs)
+    def known_veto_gap(refs):
+        return any(requirement_map[ref]["kind"] == "hard_gate" and requirement_map[ref]["match"] == "gap"
+                   for ref in refs)
+    # Unobserved rival profiles are useful scenarios, not measured deficiencies.
+    competition = stages["competition"]
+    competition_supported = (
+        competition.get("evidence_basis") == "candidate_pool" and bool(competition.get("sources"))
+        or competition.get("evidence_basis") == "jd_gap" and known_gap(competition["requirement_ids"])
+    )
+    stages = {key: dict(value) for key, value in stages.items()}
+    if not competition_supported:
+        stages["competition"]["verdict"] = "pass"
     reasons = []
-    unresolved = [item for item in red_findings if not item["resolved"]]
+    unresolved = [item for item in red_findings if not item["resolved"] and (
+        item["stage"] != "competition" or (
+            item.get("evidence_basis") == "candidate_pool" and item.get("sources")
+            or item.get("evidence_basis") == "requirement_gap" and known_veto_gap(item["requirement_ids"]))) ]
     hard_gap = any(item["kind"] == "hard_gate" and item["match"] == "gap" for item in requirements)
     hard_unknown = any(item["kind"] == "hard_gate" and item["match"] == "unknown" for item in requirements)
     # Availability evidence must describe the target vacancy, not an unrelated
@@ -544,7 +754,10 @@ def _grade_review(analysis, stages, red_findings, company_mismatch, job, *, revi
     d_causes = []
     if hard_gap:
         d_causes.append("hard-gate requirement gap")
-    if stages["ats"]["verdict"] == "fail" or stages["hr"]["verdict"] == "fail":
+    if any(stages[stage]["verdict"] == "fail" and (
+            not stages[stage]["requirement_ids"] or
+            any(requirement_map[ref]["match"] != "unknown" for ref in stages[stage]["requirement_ids"]))
+            for stage in ("ats", "hr")):
         d_causes.append("ATS or HR gate failed")
     if stages["background"]["verdict"] == "fail":
         d_causes.append("background stage failed")
@@ -552,7 +765,9 @@ def _grade_review(analysis, stages, red_findings, company_mismatch, job, *, revi
         d_causes.append("company mismatch is demonstrated")
     if closed:
         d_causes.append("the sourced vacancy is closed")
-    if any(item["severity"] == "blocker" for item in unresolved):
+    if any(item["severity"] == "blocker" and (
+            known_veto_gap(item["requirement_ids"]) or item.get("evidence_basis") == "verified_disqualification")
+            for item in unresolved):
         d_causes.append("an unresolved blocker remains")
     if d_causes:
         return "D", "SIMULATED", list(dict.fromkeys(d_causes))
@@ -563,13 +778,17 @@ def _grade_review(analysis, stages, red_findings, company_mismatch, job, *, revi
     if hard_unknown:
         reasons.append("A hard-gate requirement remains unknown")
         return None, "NEEDS_EVIDENCE", reasons
+    if any(item["severity"] == "blocker" and any(requirement_map[ref]["match"] == "unknown"
+           for ref in item["requirement_ids"]) for item in unresolved):
+        return None, "NEEDS_EVIDENCE", ["A blocker describes unresolved evidence, not a proven disqualification"]
     if stages["ats"]["verdict"] in {"risk", "unknown"} or stages["hr"]["verdict"] in {"risk", "unknown"}:
         reasons.append("ATS or HR gate lacks a pass verdict")
         return None, "NEEDS_EVIDENCE", reasons
 
-    substantive_gap = any(
-        item["kind"] in {"core", "preferred"} and item["match"] == "gap" for item in requirements
-    )
+    focus = analysis.get("role_focus") or {}
+    critical = {ref for item in focus.get("core_deliverables", []) for ref in item["requirement_ids"]}
+    substantive_gap = any(item["kind"] in {"core", "preferred"} and item["match"] == "gap"
+                          and (not critical or item["id"] in critical) for item in requirements)
     competition_weakness = stages["competition"]["verdict"] in {"risk", "fail"}
     other_fail = any(
         stages[stage]["verdict"] == "fail"
@@ -599,6 +818,8 @@ def _grade_review(analysis, stages, red_findings, company_mismatch, job, *, revi
         reasons.append("No source confirms current availability within 30 days")
     if not no_unknowns:
         reasons.append("Non-hard-gate unknowns remain for interview preparation")
+    if critical and any(item["match"] == "gap" and item["id"] not in critical for item in requirements):
+        reasons.append("An ancillary task or preference remains a preparation gap")
     if not coverage_confirmed:
         reasons.append("An analyst has not confirmed that the requirements cover the full JD")
     if not all_pass:
@@ -628,6 +849,8 @@ def save_review(data):
     with connect() as db:
         _ensure_review_table(db)
         resume = one(db, "resumes", resume_id)
+        from .experience_library import ensure_resume_current
+        ensure_resume_current(db, resume)
         resume_data = dict(resume)
         path = services.verify_resume(resume_data)
         actual_resume_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -643,8 +866,11 @@ def save_review(data):
         if analysis.get("job_sha256") != current_job_sha256:
             raise services.ValidationError("Analysis is stale because the saved job changed")
 
-        requirements = {item["id"]: item for item in analysis["requirements"]}
-        stages, findings, actions, mismatch = _validate_review_shape(data, set(requirements))
+        # Frozen evidence must still be usable; a valid JD/resume hash alone
+        # cannot rescue a retracted assertion or an excluded experience.
+        validated = _validate_requirements(db, analysis["requirements"], _description(job))
+        requirements = {item["id"]: item for item in validated}
+        stages, findings, actions, mismatch = _validate_review_shape(data, set(requirements), db)
         selected_ids = set(int(value) for value in deserialize(resume["experience_ids"]))
         for requirement_id, requirement in requirements.items():
             if requirement["match"] == "met" and not set(requirement["experience_ids"]).issubset(selected_ids):
@@ -670,6 +896,8 @@ def save_review(data):
             "red_findings": findings,
             "blue_actions": actions,
             "company_mismatch": mismatch,
+            "role_focus": analysis.get("role_focus"),
+            "validation_scope": "Deterministic reference, lifecycle, coverage and grading checks; semantic judgments are supplied by the reviewing agent, not independent reviewers.",
             "grade": grade,
             "status": status,
             "reasons": reasons,

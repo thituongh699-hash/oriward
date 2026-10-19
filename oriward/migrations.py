@@ -8,7 +8,7 @@ every further change an explicit, ordered, checksummed step.
 Guarantees:
 
 * each migration runs once and is recorded in ``schema_migrations``;
-* a file-level backup is written before the first upgrade of a non-empty
+* a consistent SQLite backup is written before the first upgrade of a non-empty
   database, so a failed upgrade can be restored by copying the file back;
 * column additions are idempotent, so a partially applied migration can be
   re-run without raising "duplicate column name";
@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -281,6 +282,28 @@ CREATE TRIGGER IF NOT EXISTS goal_revisions_no_update
 BEFORE UPDATE ON goal_revisions BEGIN SELECT RAISE(ABORT, 'goal revisions are immutable'); END;
 """
 
+LIBRARY_SQL = """
+CREATE TABLE IF NOT EXISTS experience_versions (
+    experience_id INTEGER NOT NULL REFERENCES experiences(id),
+    version INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(experience_id, version)
+);
+CREATE TABLE IF NOT EXISTS career_settings (
+    key TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS search_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    data TEXT NOT NULL,
+    report_path TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+"""
+
 # Columns that later migrations added to existing tables. Kept as data so a
 # rerun is idempotent even if a previous attempt died between DDL statements.
 ADDED_COLUMNS = {
@@ -339,6 +362,7 @@ MIGRATIONS = [
     # v3 links the three time scales: a goal owns a job, a job carries effort.
     {"version": 3, "name": "goal_job_action_link", "sql": "SELECT 1;", "post": add_missing_columns},
     {"version": 4, "name": "decision_and_goal_history", "sql": DECISION_SQL, "post": _seed_goal_history},
+    {"version": 5, "name": "experience_library_and_search_runs", "sql": LIBRARY_SQL, "post": None},
 ]
 
 
@@ -367,7 +391,8 @@ def _checksum(sql: str) -> str:
 def _has_user_data(conn) -> bool:
     """A backup of an empty file is noise; a backup of real data is insurance."""
     for table in ("profile", "experiences", "career_directions", "jobs",
-                  "applications", "user_assertions", "career_goals", "next_actions", "decision_records"):
+                  "applications", "user_assertions", "career_goals", "next_actions", "decision_records",
+                  "experience_versions", "career_settings", "search_runs"):
         try:
             if conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone():
                 return True
@@ -378,8 +403,20 @@ def _has_user_data(conn) -> bool:
 
 def _backup(conn, path: Path, from_version: int) -> str:
     conn.commit()
-    target = path.with_name(f"{path.name}.bak-v{from_version}-{datetime.now().strftime('%Y%m%d%H%M%S')}")
-    target.write_bytes(path.read_bytes())
+    target = path.with_name(f"{path.name}.bak-v{from_version}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}")
+    # The backup API includes committed WAL pages, unlike copying the main file.
+    # Open exclusively so an upgrade never overwrites an earlier restore point.
+    with target.open('xb'):
+        pass
+    try:
+        with closing(sqlite3.connect(target)) as backup:
+            conn.backup(backup)
+            backup.commit()
+            if backup.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+                raise OSError('SQLite backup integrity check failed')
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
     return str(target)
 
 
@@ -407,8 +444,8 @@ def apply(conn, path: Path | None = None) -> dict:
     if path is not None and path.exists() and _has_user_data(conn):
         try:
             backup_path = _backup(conn, path, current_version(conn))
-        except OSError as error:
-            raise OSError("Cannot back up existing CareerOS data; migration was not started") from error
+        except (OSError, sqlite3.Error) as error:
+            raise OSError("Cannot back up existing Oriward data; migration was not started") from error
 
     applied = []
     for migration in pending:

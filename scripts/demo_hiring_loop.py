@@ -18,12 +18,12 @@ def main():
     args = parser.parse_args()
     folder = Path(args.output).resolve()
     folder.mkdir(parents=True, exist_ok=False)
-    environment = dict(os.environ, CAREEROS_DB=str(folder / "demo.sqlite3"),
-                       CAREEROS_OUTPUT_DIR=str(folder / "resumes"), PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1")
+    environment = dict(os.environ, ORIWARD_DB=str(folder / "demo.sqlite3"),
+                       ORIWARD_OUTPUT_DIR=str(folder / "resumes"), PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1")
     commands = []
 
     def run(*argv):
-        result = subprocess.run([sys.executable, "-m", "careeros", *map(str, argv)], cwd=ROOT,
+        result = subprocess.run([sys.executable, "-m", "oriward", *map(str, argv)], cwd=ROOT,
                                 env=environment, capture_output=True, text=True, encoding="utf-8")
         if result.returncode:
             raise RuntimeError(f"{' '.join(map(str, argv))}: {result.stderr}")
@@ -45,7 +45,7 @@ def main():
         "outcomes": ["向课程小组展示数据处理方法"],
         "evidence": [{"claim": "完成数据清洗、规则验证和展示", "source": "虚构验收数据",
                       "status": "user_confirmed"}], "approved_for_resume": True}))['id']
-    description = "使用 Python 完成数据清洗\n解释缺失值处理和验证方法\n有团队展示经验优先"
+    description = "使用 Python 完成数据清洗\n解释缺失值处理方法\n验证数据处理结果\n有团队展示经验优先"
     job = {"source": "fictional-demo", "source_id": "analyst-1", "title": "数据分析助理（虚构）",
            "company": "演示公司（不存在）", "description": description, "retrieved_at": timestamp,
            "url": "https://example.invalid/careers/demo", "availability": "listed"}

@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import official, tracking
-from careeros.services import ValidationError
-from careeros.sources import SourceError
+from oriward import official, tracking
+from oriward.services import ValidationError
+from oriward.sources import SourceError
 
 POSTING_URL = "https://careers.acme-demo.com/jobs/123"
 
@@ -30,15 +30,15 @@ class OfficialChannelTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        env = patch.dict(os.environ, {"CAREEROS_DB": str(self.root / "db.sqlite3"),
-                                     "CAREEROS_OFFICIAL_CACHE": str(self.root / "cache")})
+        env = patch.dict(os.environ, {"ORIWARD_DB": str(self.root / "db.sqlite3"),
+                                     "ORIWARD_OFFICIAL_CACHE": str(self.root / "cache")})
         env.start()
         self.addCleanup(env.stop)
 
     def serve(self, page=PAGE, robots="User-agent: *\nAllow: /\n"):
         def fake_get(url, accept):
             return robots if url.endswith("/robots.txt") else page
-        return patch("careeros.official._get", side_effect=fake_get)
+        return patch("oriward.official._get", side_effect=fake_get)
 
     def test_only_public_https_hosts_are_read(self):
         self.assertEqual(official.require_public_https(POSTING_URL), "careers.acme-demo.com")

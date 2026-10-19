@@ -29,6 +29,21 @@ class DocumentExportTests(unittest.TestCase):
         self.assertFalse(result["writes"])
         self.assertIn("docx", result["dependencies"])
 
+    def test_stale_experience_source_is_refused_before_optional_generation(self):
+        from oriward import experience_library as lib, services, sources
+        with patch.dict(os.environ, {"ORIWARD_DB": str(self.root / "isolated.sqlite3"),
+                                     "ORIWARD_OUTPUT_DIR": str(self.root / "resumes")}):
+            services.save_profile({"display_name": "Fictional Candidate"})
+            eid = lib.create({"event": "Fictional coursework", "actions": ["Built a report"], "outcomes": [],
+                              "evidence": [{"claim": "Built a report", "source": "self-report", "status": "user_stated"}],
+                              "approved_for_resume": True})
+            jid = sources.import_records([{"source": "fictional", "source_id": "1", "title": "Intern",
+                "company": "Fictional", "description": "Reports", "url": "https://example.invalid/1"}])["job_ids"][0]
+            resume = services.build_resume(jid, [eid])
+            lib.exclude(eid, reason="Candidate excluded it")
+            with self.assertRaisesRegex(exporter.ExportError, "STALE_RESUME"):
+                exporter._load_resume(resume["id"])
+
     def test_schema_rejects_unknown_and_malformed_values(self):
         with self.assertRaisesRegex(exporter.ExportError, "unknown"):
             exporter.export_document(document={"sections": [], "extra": True}, output_dir=self.root / "x", formats=("docx",))
@@ -69,13 +84,13 @@ class DocumentExportTests(unittest.TestCase):
     def test_real_generated_resume_keeps_summary_headline_experience_order_and_provenance(self):
         try:
             import docx
-            import reportlab
+            import reportlab  # noqa: F401 -- optional dependency availability probe
             from pypdf import PdfReader
-            from careeros import services as s, sources
+            from oriward import services as s, sources
         except ImportError:
-            self.skipTest("optional document libraries or CareerOS unavailable")
-        with patch.dict(os.environ, {"CAREEROS_DB": str(self.root / "db.sqlite3"),
-                                     "CAREEROS_OUTPUT_DIR": str(self.root / "resumes")}, clear=False):
+            self.skipTest("optional document libraries or Oriward unavailable")
+        with patch.dict(os.environ, {"ORIWARD_DB": str(self.root / "db.sqlite3"),
+                                     "ORIWARD_OUTPUT_DIR": str(self.root / "resumes")}, clear=False):
             s.save_profile({"display_name": "Fictional Candidate", "contact": {"email": "fictional@example.test"},
                             "summary_verified": "Verified profile summary"})
             experience_ids = []
@@ -117,11 +132,11 @@ class DocumentExportTests(unittest.TestCase):
 
     def test_pending_resume_revision_is_refused_before_output(self):
         try:
-            from careeros import feedback, services as s, sources
+            from oriward import feedback, services as s, sources
         except ImportError:
-            self.skipTest("CareerOS package unavailable")
-        with patch.dict(os.environ, {"CAREEROS_DB": str(self.root / "db.sqlite3"),
-                                     "CAREEROS_OUTPUT_DIR": str(self.root / "resumes")}, clear=False):
+            self.skipTest("Oriward package unavailable")
+        with patch.dict(os.environ, {"ORIWARD_DB": str(self.root / "db.sqlite3"),
+                                     "ORIWARD_OUTPUT_DIR": str(self.root / "resumes")}, clear=False):
             s.save_profile({"display_name": "Fictional Candidate"})
             exp = s.add_object("experiences", {"event": "Demo", "actions": ["Built report"], "outcomes": [],
                 "evidence": [{"claim": "Built report", "source": "fixture", "status": "user_confirmed"}],
@@ -160,7 +175,7 @@ class DocumentExportTests(unittest.TestCase):
     def test_paired_outputs_read_same_key_text_and_keep_html_literal(self):
         try:
             import docx
-            import reportlab
+            import reportlab  # noqa: F401 -- optional dependency availability probe
             from pypdf import PdfReader
         except ImportError:
             self.skipTest("DOCX/PDF optional libraries unavailable")
@@ -178,7 +193,7 @@ class DocumentExportTests(unittest.TestCase):
     def test_long_table_starts_on_page_with_available_space_after_its_heading(self):
         try:
             from pypdf import PdfReader
-            import reportlab
+            import reportlab  # noqa: F401 -- optional dependency availability probe
         except ImportError:
             self.skipTest("ReportLab/PDF reader unavailable")
         document = {"title": "Table pagination", "sections": [

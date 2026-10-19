@@ -50,10 +50,13 @@ def _context(conn, action):
         state = conn.execute("SELECT * FROM job_pipeline WHERE job_id=?", (jid,)).fetchone()
         jobs.append({"record": row, "snapshots": snapshots,
                      "pipeline": dict(state) if state else None})
+    application = None
+    if action["source_type"] == "application" and action["source_id"] is not None:
+        application = dict(conn.execute("SELECT * FROM applications WHERE id=?", (action["source_id"],)).fetchone())
     return {"action": {key: action[key] for key in (
                 "id", "title", "source_type", "source_id", "action_type", "due_at", "priority",
                 "depends_on_json", "suggestion_reason", "effort_hours", "requires_approval")},
-            "assertions": claims, "goals": goals, "jobs": jobs,
+            "assertions": claims, "goals": goals, "jobs": jobs, "application": application,
             "related": related}
 
 
@@ -90,11 +93,8 @@ def _validate_factors(conn, factors):
                                 or not skill_value):
                             raise ValueError("capability evidence needs a skill_hypothesis with skill subject, has_skill and skill value")
                     if field == "experience_ids":
-                        data = deserialize(row["data"])
-                        if (not data.get("approved_for_resume") or not data.get("evidence")
-                                or any(e.get("status") not in ("user_confirmed", "document_verified")
-                                       for e in data["evidence"])):
-                            raise ValueError(f"experience #{rid} has no approved verified evidence")
+                        from ..experience_library import validate_for_resume
+                        validate_for_resume(conn, int(rid))
                 evidence[name].append({"kind": field, "record": dict(row)})
         if name == "capability" and factor["status"] == "supports" and not evidence[name]:
             raise ValueError("supporting capability requires assertion_ids or experience_ids")
@@ -219,6 +219,10 @@ def assess_action(conn, action) -> dict:
     row = conn.execute("SELECT * FROM decision_records WHERE action_id=? ORDER BY id DESC LIMIT 1",
                        (action["id"],)).fetchone()
     reasons, excluded = [], []
+    application = current["application"]
+    if application and application["status"] in ("WITHDRAWN", "REJECTED", "DECLINED", "ACCEPTED"):
+        if action["action_type"] in ("apply", "follow_up", "prepare", "practice"):
+            excluded.append(f"申请 #{application['id']} 已结束（{application['status']}），该行动不再适用")
     constraints = [r for r in current["assertions"] if r["assertion_type"] == "constraint" and _settled(r)]
     for job in current["jobs"]:
         # Goal-level preparation can continue after an individual opportunity

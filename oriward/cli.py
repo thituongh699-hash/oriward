@@ -1,4 +1,4 @@
-"""CareerOS commands for use by the user or Agent skill workflows."""
+"""Oriward commands for use by the user or Agent skill workflows."""
 from __future__ import annotations
 
 import argparse
@@ -6,10 +6,11 @@ import json
 import sys
 from pathlib import Path
 import hashlib
-from .db import connect, database_path, deserialize, one
+from .db import connect, database_path, deserialize
 from . import services as s
 from . import sources, assessment, feedback, discovery, tracking, official
 from . import migrations
+from . import experience_library, onboarding, search_runs
 from .core import actions as core_actions, assertions as core_belief, context as core_context
 from .core import goals as core_goals, pipeline as core_pipeline, reflection as core_reflection
 from .core import signals as core_signals, twin as core_twin
@@ -28,6 +29,14 @@ def p(obj):
         print(json.dumps({"saved": str(path), "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}, ensure_ascii=False))
     else:
         print(payload)
+
+
+def _ids(value):
+    return [int(item.strip()) for item in value.split(",") if item.strip()] if value is not None else None
+
+
+def _sections(value):
+    return [item.strip() for item in value.split(",") if item.strip()] if value is not None else None
 
 
 BELIEF_FIELDS = ("subject", "predicate", "value", "assertion_type", "source_type",
@@ -77,7 +86,7 @@ def belief_command(args):
 
 def run(argv=None):
     global _OUTPUT_PATH
-    parser = argparse.ArgumentParser(prog="python -m careeros", description="CareerOS local evidence-backed career toolkit")
+    parser = argparse.ArgumentParser(prog="python -m oriward", description="Oriward local evidence-backed career toolkit")
     parser.add_argument("--output", help="Save full JSON locally and print only path/size/hash")
     sub = parser.add_subparsers(dest="domain", required=True)
     sub.add_parser("init", help="Create or migrate the local SQLite schema")
@@ -102,6 +111,27 @@ def run(argv=None):
         if domain == "profile":
             x = actions.add_parser("save"); x.add_argument("--file", required=True)
             actions.add_parser("show")
+        elif domain == "experience":
+            x = actions.add_parser("add"); x.add_argument("--file", required=True)
+            for name in ("list", "index", "skills"):
+                x = actions.add_parser(name)
+                x.add_argument("--query", default=""); x.add_argument("--ids")
+                x.add_argument("--budget", type=int, default=2200)
+                x.add_argument("--offset", type=int, default=0)
+            x = actions.add_parser("detail")
+            x.add_argument("--ids"); x.add_argument("--query", default="")
+            x.add_argument("--sections"); x.add_argument("--include-inactive", action="store_true")
+            x = actions.add_parser("show")
+            x.add_argument("--id", type=int, required=True); x.add_argument("--version", type=int)
+            x.add_argument("--sections"); x.add_argument("--include-inactive", action="store_true")
+            x = actions.add_parser("revise")
+            x.add_argument("--id", type=int, required=True); x.add_argument("--file", required=True)
+            x.add_argument("--reason", required=True); x.add_argument("--expected-version", type=int)
+            for name in ("exclude", "supersede"):
+                x = actions.add_parser(name)
+                x.add_argument("--id", type=int, required=True); x.add_argument("--reason", required=True)
+                if name == "supersede": x.add_argument("--replacement-id", type=int, required=True)
+            x = actions.add_parser("history"); x.add_argument("--id", type=int, required=True)
         elif domain == "jobs":
             x = actions.add_parser("import")
             files = x.add_mutually_exclusive_group(required=True)
@@ -208,6 +238,32 @@ def run(argv=None):
                 for name in ("draft", "packet"):
                     x = actions.add_parser(name); x.add_argument("--job-id", type=int, required=True)
                     if name == "packet": x.add_argument("--compact", action="store_true")
+
+    setup = sub.add_parser("onboarding", help="Lightweight first use, targets and optional channels")
+    oa = setup.add_subparsers(dest="action", required=True)
+    oa.add_parser("status")
+    x = oa.add_parser("missing"); x.add_argument("--before-search", action="store_true")
+    x = oa.add_parser("preferences"); x.add_argument("--file", required=True)
+    x = oa.add_parser("prompt"); x.add_argument("--field", required=True)
+    x.add_argument("--state", required=True, choices=sorted(onboarding.PROMPT_STATES))
+    x = oa.add_parser("channel-intent"); x.add_argument("--provider", required=True)
+    x.add_argument("--preference", required=True, choices=sorted(onboarding.PREFERENCES))
+    x = oa.add_parser("channel-state"); x.add_argument("--provider", required=True)
+    x.add_argument("--state", required=True, choices=sorted(onboarding.CONNECTIONS))
+    x.add_argument("--detail", default=""); x.add_argument("--receipt")
+    x = oa.add_parser("topic"); x.add_argument("--title", required=True)
+    x.add_argument("--next-action", default=""); x.add_argument("--blocker", default="")
+    x = oa.add_parser("pause"); x.add_argument("--reason", default="")
+    x = oa.add_parser("resume"); x.add_argument("--id", type=int, required=True)
+
+    sr = sub.add_parser("search-run", help="Search receipts and Markdown reports, including partial failures")
+    sa = sr.add_subparsers(dest="action", required=True)
+    x = sa.add_parser("start"); x.add_argument("--file", required=True)
+    x = sa.add_parser("record"); x.add_argument("--id", type=int, required=True); x.add_argument("--file", required=True)
+    x = sa.add_parser("candidates"); x.add_argument("--id", type=int, required=True); x.add_argument("--file", required=True)
+    x = sa.add_parser("finish"); x.add_argument("--id", type=int, required=True); x.add_argument("--file")
+    x = sa.add_parser("show"); x.add_argument("--id", type=int, required=True)
+    x = sa.add_parser("list"); x.add_argument("--limit", type=int, default=20)
 
     ctx = sub.add_parser("context", help="Bounded user context assembled from Career Twin Core")
     ca = ctx.add_subparsers(dest="action", required=True)
@@ -403,12 +459,68 @@ def run(argv=None):
         return
     if args.domain == "profile":
         p({"id": s.save_profile(s.json_file(args.file))} if args.action == "save" else s.get_profile()); return
+    if args.domain == "experience":
+        if args.action == "add":
+            p({"id": experience_library.create(s.json_file(args.file))})
+        elif args.action == "skills":
+            p(experience_library.skills(query=args.query, budget=args.budget, offset=args.offset))
+        elif args.action in ("list", "index"):
+            p(experience_library.index(query=args.query, ids=_ids(args.ids), budget=args.budget, offset=args.offset))
+        elif args.action == "detail":
+            p(experience_library.detail(ids=_ids(args.ids), query=args.query, sections=_sections(args.sections),
+                                        include_inactive=args.include_inactive))
+        elif args.action == "show":
+            p(experience_library.get(args.id, version=args.version, sections=_sections(args.sections),
+                                     include_inactive=args.include_inactive))
+        elif args.action == "revise":
+            p(experience_library.revise(args.id, s.json_file(args.file), reason=args.reason,
+                                        expected_version=args.expected_version))
+        elif args.action == "exclude":
+            p(experience_library.exclude(args.id, reason=args.reason))
+        elif args.action == "supersede":
+            p(experience_library.supersede(args.id, args.replacement_id, reason=args.reason))
+        else:
+            p(experience_library.history(args.id))
+        return
+    if args.domain == "onboarding":
+        if args.action == "status": p(onboarding.status())
+        elif args.action == "missing": p(onboarding.missing_prompts(before_search=args.before_search))
+        elif args.action == "preferences":
+            p(onboarding.update_preferences(**pick(s.json_file(args.file), ("companies", "roles", "constraints", "intent"), "preferences")))
+        elif args.action == "prompt": p(onboarding.mark_prompt(args.field, args.state))
+        elif args.action == "channel-intent": p(onboarding.set_channel_preference(args.provider, args.preference))
+        elif args.action == "channel-state":
+            p(onboarding.set_channel_connection(args.provider, args.state, detail=args.detail,
+                                                validation_receipt=s.json_file(args.receipt) if args.receipt else None))
+        elif args.action == "topic": p(onboarding.set_topic(args.title, next_action=args.next_action, blocker=args.blocker))
+        elif args.action == "pause": p(onboarding.pause_topic(reason=args.reason))
+        else: p(onboarding.resume_topic(args.id))
+        return
+    if args.domain == "search-run":
+        if args.action == "start":
+            p(search_runs.create_run(**pick(s.json_file(args.file), ("scope", "planned_channels", "output_dir"), "search run")))
+        elif args.action == "record":
+            fields = ("provider", "status", "attempted", "reason", "coverage", "counts", "next_action", "source_url", "observed_at")
+            p(search_runs.record_channel(args.id, **pick(s.json_file(args.file), fields, "channel receipt")))
+        elif args.action == "candidates": p(search_runs.add_candidates(args.id, s.json_file(args.file)))
+        elif args.action == "finish":
+            values = pick(s.json_file(args.file), ("counts", "coverage", "next_action"), "search completion") if args.file else {}
+            p(search_runs.finish_run(args.id, **values))
+        elif args.action == "show": p(search_runs.show(args.id))
+        else: p(search_runs.list_runs(args.limit))
+        return
     if args.domain == "jobs":
         if args.action == "channels": p(discovery.channels())
-        elif args.action == "search": p(discovery.search_local(args.query, args.location, args.provider, args.limit, args.refresh))
+        elif args.action == "search":
+            p(search_runs.execute_search(args.provider, {"query": args.query, "location": args.location, "limit": args.limit},
+                                         lambda: discovery.search_local(args.query, args.location, args.provider, args.limit, args.refresh)))
         elif args.action == "search-plan": p(discovery.search_plan(args.query, args.location, args.providers.split(",") if args.providers else None))
         elif args.action == "browser-plan": p(discovery.browser_plan(args.query, args.location, args.provider, args.limit))
-        elif args.action == "browser-record": p(discovery.record_browser_observation(s.json_file(args.file)))
+        elif args.action == "browser-record":
+            data = s.json_file(args.file)
+            scope = {key: data[key] for key in ("query", "location", "limit") if key in data}
+            p(search_runs.execute_search(data.get("provider", "browser"), scope,
+                                         lambda: discovery.record_browser_observation(data)))
         elif args.action == "browser-runs": p(discovery.browser_runs(args.limit))
         elif args.action == "shortlist": p(discovery.shortlist(args.query, args.location, args.exclude, args.limit))
         elif args.action == "import":
@@ -419,7 +531,9 @@ def run(argv=None):
                 with open(args.csv, encoding="utf-8-sig", newline="") as handle:
                     records = list(csv.DictReader(handle))
                 p(sources.import_records([{k: v for k, v in r.items() if v not in (None, "")} for r in records]))
-        elif args.action == "sync": p(sources.sync_jobs(args.provider, args.board, args.company, args.limit))
+        elif args.action == "sync":
+            p(search_runs.execute_search(args.provider, {"board": args.board, "company": args.company, "limit": args.limit},
+                                         lambda: sources.sync_jobs(args.provider, args.board, args.company, args.limit)))
         elif args.action == "card": p(tracking.job_card(args.id))
         elif args.action == "route": p(discovery.channel_route(args.provider, args.query, args.location))
         elif args.action == "group":
@@ -437,7 +551,9 @@ def run(argv=None):
     if args.domain == "leads":
         if args.action == "import": p(discovery.import_leads(s.json_file(args.file)))
         elif args.action == "list": p(discovery.list_leads(args.provider, args.limit))
-        elif args.action == "fetch": p(discovery.fetch_lead(args.id, args.refresh))
+        elif args.action == "fetch":
+            p(search_runs.execute_search("lead_detail", {"filters": {"lead_id": args.id}},
+                                         lambda: discovery.fetch_lead(args.id, args.refresh)))
         else: p(discovery.promote_lead(args.id, s.json_file(args.file)))
         return
     if args.domain == "resume":
@@ -496,8 +612,10 @@ def run(argv=None):
         if args.action == "plan":
             p(official.plan(args.company, args.query, args.url))
         else:
-            record = official.fetch(args.url, args.company, args.refresh)
-            p(record if args.record_only else official.import_official(record))
+            def read_official():
+                record = official.fetch(args.url, args.company, args.refresh)
+                return record if args.record_only else official.import_official(record)
+            p(search_runs.execute_search("official", {"source_url": args.url, "company": args.company}, read_official))
         return
     mapping = {
         "experience": ("experiences", ["event", "actions", "outcomes", "evidence", "approved_for_resume"]),
@@ -537,5 +655,8 @@ def main():
     try:
         run()
     except (ValueError, OSError, json.JSONDecodeError) as e:
-        print(json.dumps({"error": str(e)}, ensure_ascii=False), file=sys.stderr)
+        error = {"error": str(e)}
+        if hasattr(e, "search_run_id"):
+            error.update(search_run_id=e.search_run_id, report_path=e.report_path)
+        print(json.dumps(error, ensure_ascii=False), file=sys.stderr)
         raise SystemExit(2)

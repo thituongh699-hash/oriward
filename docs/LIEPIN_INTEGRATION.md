@@ -1,13 +1,13 @@
 # 猎聘搜索扩展
 
-`careeros/extras/liepin.py` 是默认关闭的可选扩展，仅暴露关键词/城市搜索；不读取或改写简历，不投递。接口使用范围由平台条款与用户授权决定，项目不承诺第三方客户端许可，也不暗示官方合作。代码具备接口不等于当前账号或远端已验证可用；历史核查见 [CHANGELOG](../CHANGELOG.md)。
+`oriward/extras/liepin.py` 是默认关闭的可选扩展，仅暴露关键词/城市搜索；不读取或改写简历，不投递。接口使用范围由平台条款与用户授权决定，项目不承诺第三方客户端许可，也不暗示官方合作。代码具备接口不等于当前账号或远端已验证可用；历史核查见 [CHANGELOG](../CHANGELOG.md)。
 
 ## 启用与返回状态
 
-没有用户明确指令不得启用。宿主安全注入 `LIEPIN_USER_TOKEN` 并设置 `CAREEROS_ENABLE_LIEPIN=1` 后执行：
+没有用户明确指令不得启用。宿主安全注入 `LIEPIN_USER_TOKEN` 并设置 `ORIWARD_ENABLE_LIEPIN=1` 后执行：
 
 ```text
-python -m careeros jobs search --provider liepin --query "产品经理" --location "苏州" --limit 10
+python -m oriward jobs search --provider liepin --query "产品经理" --location "苏州" --limit 10
 ```
 
 | 返回 | 含义与下一步 |
@@ -20,7 +20,7 @@ python -m careeros jobs search --provider liepin --query "产品经理" --locati
 
 CLI 将验证后的卡片写入 search_leads，返回 `leads` 与导入数量；取得有来源的完整 JD 后才可提升为 jobs，按 [岗位导入契约](../.agents/skills/job-search/references/job-import-contract.md) 执行。`returned_count` 是首个响应页的规范化数量，返回线索受本地 limit 截取；不表示网站全部结果。
 
-请求为 `POST https://open-agent.liepin.com/mcp/search-job`，仅发 jobName、可选 address 和 page=0；只取首页，30 秒超时、2 MiB 上限、不跟随重定向、不自动重试/批量轮询。原始响应与账号隔离缓存默认在 `data/private/liepin-search/`，可用 `CAREEROS_LIEPIN_CACHE` 指定；缓存 15 分钟且保留真实 fetched_at，`--refresh` 重新请求。响应可能含个人或平台数据，按私人材料处理，不自动读入整份聊天。
+请求为 `POST https://open-agent.liepin.com/mcp/search-job`，仅发 jobName、可选 address 和 page=0；只取首页，30 秒超时、2 MiB 上限、不跟随重定向、不自动重试/批量轮询。原始响应与账号隔离缓存默认在 `data/private/liepin-search/`，可用 `ORIWARD_LIEPIN_CACHE` 指定；缓存 15 分钟且保留真实 fetched_at，`--refresh` 重新请求。响应可能含个人或平台数据，按私人材料处理，不自动读入整份聊天。
 
 ## 凭证配置
 

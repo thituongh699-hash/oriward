@@ -4,26 +4,24 @@ No model call, credential access, browser login or external submission occurs he
 """
 from __future__ import annotations
 
-import json
-import os
-import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
-from .db import connect, deserialize, serialize, now, audit, one
+from .db import connect, deserialize, serialize, now, audit
 from .services import ValidationError, clean_url, validate_dict
 from . import sources
+from .legacy import environment
 
 
 VERIFIED_AT = "2026-10-18"
 
 #: Channels that ship as optional extensions. They are never imported on the
 #: default path: the module below is loaded lazily, only when the user opts in
-#: through the named environment variable. See `careeros/extras/__init__.py`.
+#: through the named environment variable. See `oriward/extras/__init__.py`.
 OPTIONAL_EXTENSIONS = {
     "liepin": {
-        "module": "careeros.extras.liepin",
-        "env": "CAREEROS_ENABLE_LIEPIN",
+        "module": "oriward.extras.liepin",
+        "env": "ORIWARD_ENABLE_LIEPIN",
         "terms": "该渠道调用第三方平台接口，其开放范围与二次使用条件由平台条款决定；"
                  "启用前请自行确认授权范围与合规性，本项目不作任何许可承诺。",
     },
@@ -33,7 +31,7 @@ OPTIONAL_EXTENSIONS = {
 def extension_enabled(name):
     """Optional extensions stay off unless the user opts in explicitly."""
     meta = OPTIONAL_EXTENSIONS.get(name)
-    return bool(meta) and os.environ.get(meta["env"], "").strip() == "1"
+    return bool(meta) and environment(meta["env"], "").strip() == "1"
 
 CHANNELS = {
     "official": {
@@ -52,7 +50,7 @@ CHANNELS = {
         "name": "猎聘", "domain": "liepin.com", "home": "https://www.liepin.com/", "mode": "official_api_requires_auth",
         "access": "official_api", "supports": ["search"], "apply_channel": True,
         "search_entry": "https://www.liepin.com/zhaopin/", "verified_at": VERIFIED_AT,
-        "note": "可选扩展，默认关闭（需 CAREEROS_ENABLE_LIEPIN=1）；需 90 天 Token；只返回搜索卡片，完整 JD 需人工读取",
+        "note": "可选扩展，默认关闭（需 ORIWARD_ENABLE_LIEPIN=1）；需 90 天 Token；只返回搜索卡片，完整 JD 需人工读取",
     },
     "boss": {
         "name": "BOSS直聘", "domain": "zhipin.com", "home": "https://www.zhipin.com/", "mode": "browser_ui",

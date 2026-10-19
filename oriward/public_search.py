@@ -34,7 +34,7 @@ MIN_REQUEST_INTERVAL_SECONDS = 2.0
 SEARCH_TTL = timedelta(minutes=15)
 DETAIL_TTL = timedelta(hours=24)
 ROBOTS_TTL = timedelta(hours=24)
-USER_AGENT = "CareerOS/0.1 public-job-reader"
+USER_AGENT = "Oriward/0.2.0 public-job-reader"
 _JOB_PATH_RE = re.compile(r"^/jobs/(job_[A-Za-z0-9]+)$")
 _CHALLENGE_MARKERS = (
     "cf-chl-",
@@ -65,7 +65,8 @@ def _validate_origin(url: str) -> None:
 
 
 def _cache_root() -> Path:
-    configured = os.environ.get("CAREEROS_CACHE_DIR")
+    from .legacy import environment
+    configured = environment("ORIWARD_CACHE_DIR")
     if configured:
         return Path(configured).expanduser().resolve()
     return database_path().parent / "cache" / "public-search"

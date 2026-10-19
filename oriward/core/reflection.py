@@ -45,7 +45,7 @@ def weekly(days: int = 7) -> dict:
                 "kind": "promote_constraint",
                 "summary": f"同一理由出现 {len(rows)} 次：「{reason[:40]}」，是否升级为长期约束？",
                 "evidence": [f"user_feedback:{row['id']}" for row in rows],
-                "apply_with": f"python -m careeros signal promote --id {rows[0]['id']} --human-confirmed",
+                "apply_with": f"python -m oriward signal promote --id {rows[0]['id']} --human-confirmed",
                 "requires_user_approval": True,
                 "confidence": "medium",
             })
@@ -62,7 +62,7 @@ def weekly(days: int = 7) -> dict:
                 "kind": "stale_shortlist",
                 "summary": f"短名单岗位「{row['company']} / {row['title']}」超过 {days} 天没有更新，也没有下一步动作",
                 "evidence": [f"job:{row['job_id']}"],
-                "apply_with": "python -m careeros pipeline update --job-id "
+                "apply_with": "python -m oriward pipeline update --job-id "
                               f"{row['job_id']} --status evaluating --reason '重新评估'",
                 "requires_user_approval": True,
                 "confidence": "low",
@@ -82,7 +82,7 @@ def weekly(days: int = 7) -> dict:
                 "kind": "goal_without_action",
                 "summary": f"目标「{row['title']}」没有任何未完成行动，目标与执行已经脱节",
                 "evidence": [f"goal:{row['id']}"],
-                "apply_with": "python -m careeros action propose --file <task.json>",
+                "apply_with": "python -m oriward action propose --file <task.json>",
                 "requires_user_approval": True,
                 "confidence": "medium",
             })
@@ -95,7 +95,7 @@ def weekly(days: int = 7) -> dict:
                 "kind": "confirm_inference",
                 "summary": f"推断「{str(deserialize(row['value_json']))[:40]}」已存在超过 {days} 天仍未确认",
                 "evidence": [f"assertion:{row['id']}"],
-                "apply_with": f"python -m careeros belief confirm --id {row['id']}",
+                "apply_with": f"python -m oriward belief confirm --id {row['id']}",
                 "requires_user_approval": True,
                 "confidence": "low",
             })

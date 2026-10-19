@@ -1,10 +1,9 @@
-"""Deterministic CareerOS operations. No LLM dependency and no external submissions."""
+"""Deterministic Oriward operations. No LLM dependency and no external submissions."""
 from __future__ import annotations
 
 import csv
 import hashlib
 import json
-import os
 import re
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
@@ -113,18 +112,11 @@ def add_object(table, data, required):
     allowed = {"experiences", "career_directions", "job_analyses", "learning_plans", "interviews"}
     if table not in allowed:
         raise ValidationError("Unsupported writable object type")
+    if table == "experiences":
+        from .experience_library import create
+        return create(data)
     validate_dict(data, required)
     with connect() as db:
-        if table == "experiences":
-            if not isinstance(data.get("approved_for_resume"), bool):
-                raise ValidationError("Experience must include approved_for_resume (true or false)")
-            for key in ("actions", "outcomes", "evidence"):
-                if key not in data or not isinstance(data[key], list):
-                    raise ValidationError(f"Experience requires {key} array")
-            for ev in data["evidence"]:
-                validate_dict(ev, ["claim", "source", "status"])
-                if ev["status"] not in ("user_confirmed", "document_verified", "unverified"):
-                    raise ValidationError("Evidence status invalid")
         if table == "career_directions":
             check_exp_ids(db, data.get("supporting_experience_ids", []))
         if table == "learning_plans":
@@ -156,7 +148,10 @@ def check_exp_ids(db, ids):
     if not isinstance(ids, list):
         raise ValidationError("experience IDs must be an array")
     for exp_id in ids:
-        one(db, "experiences", int(exp_id))
+        from .experience_library import _projection
+        d = _projection(db, one(db, "experiences", int(exp_id)))["data"]
+        if d["status"] != "current" or d["needs_review"]:
+            raise ValidationError(f"Experience {exp_id} is inactive or needs_review")
 
 
 def list_objects(table):
@@ -164,8 +159,16 @@ def list_objects(table):
     if table not in allowed:
         raise ValidationError("Unsupported list object type")
     with connect() as db:
+        if table == "experiences":
+            from .experience_library import list_current
+            return [{**r, "data": serialize(r["data"])} for r in list_current(conn=db)
+                    if not r["data"]["needs_review"]]
         rows = db.execute(f"SELECT * FROM {table} ORDER BY id DESC").fetchall()
-        return [dict(row) for row in rows]
+        result = [dict(row) for row in rows]
+        if table == "resumes":
+            from .experience_library import resume_validity
+            result = [{**r, **resume_validity(db, r)} for r in result]
+        return result
 
 
 def clean_url(url):
@@ -234,14 +237,8 @@ def build_resume(job_id, experience_ids, headline=""):
         job_data = deserialize(job["data"])
         experiences = []
         for exp_id in experience_ids:
-            d = deserialize(one(db, "experiences", exp_id)["data"])
-            if not d.get("approved_for_resume"):
-                raise ValidationError(f"Experience {exp_id} not approved for resume")
-            if not d.get("evidence"):
-                raise ValidationError(f"Experience {exp_id} requires nonempty verified evidence")
-            for item in d.get("evidence", []):
-                if item.get("status") == "unverified":
-                    raise ValidationError(f"Experience {exp_id} has unverified evidence; resolve before resume use")
+            from .experience_library import validate_for_resume
+            d = validate_for_resume(db, exp_id)
             experiences.append((exp_id, d))
         person = profile["display_name"].strip()
         contact = profile.get("contact", {})
@@ -278,6 +275,8 @@ def build_resume(job_id, experience_ids, headline=""):
             with path.open("x", encoding="utf-8", newline="\n") as handle:
                 handle.write(content)
             db.execute("UPDATE resumes SET output_path=? WHERE id=?", (str(path.resolve()), resume_id))
+            from .experience_library import record_resume_sources
+            record_resume_sources(db, resume_id, experience_ids)
             audit(db, "resume.built", "resumes", resume_id)
             return {"id": resume_id, "path": str(path), "sha256": digest}
 
@@ -299,6 +298,8 @@ def prepare_application(job_id, resume_id, channel="", apply_url=""):
         if resume["job_id"] != job_id:
             raise ValidationError("Resume does not match job")
         verify_resume(resume)
+        from .experience_library import ensure_resume_current
+        ensure_resume_current(db, resume)
         # Legacy base resumes already contain approved wording. New revisions
         # may contain unconfirmed rephrasing and must not enter a packet yet.
         from .feedback import ensure_schema
@@ -340,11 +341,12 @@ def repeat_application_hints(job_id):
 
 
 def resume_output_dir():
-    override = os.environ.get("CAREEROS_OUTPUT_DIR")
+    from .legacy import environment
+    override = environment("ORIWARD_OUTPUT_DIR")
     if override:
         return Path(override).expanduser().resolve()
     # An isolated database must never overwrite the real user's resume files.
-    if os.environ.get("CAREEROS_DB"):
+    if environment("ORIWARD_DB"):
         return database_path().parent / "outputs" / "resumes"
     return PROJECT_ROOT / "outputs" / "resumes"
 

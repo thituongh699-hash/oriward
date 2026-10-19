@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded, local DOCX/PDF exporter for CareerOS generated resumes.
+"""Bounded, local DOCX/PDF exporter for Oriward generated resumes.
 
 The core accepts a deliberately small JSON document model.  It does not
 interpret Markdown or HTML; resume Markdown is accepted only through the
@@ -243,7 +243,7 @@ def _reportlab_embeddable(path):
     except ImportError as exc:
         _error("MISSING_DEPENDENCY", "PDF export needs reportlab: " + str(exc))
     try:
-        TTFont("CareerOSExportProbe", str(path), subfontIndex=0)
+        TTFont("OriwardExportProbe", str(path), subfontIndex=0)
         return True
     except Exception as exc:
         return str(exc)
@@ -343,7 +343,7 @@ def _write_pdf(document, stream, font_path):
         _error("MISSING_DEPENDENCY", "PDF export needs reportlab: " + str(exc))
     # ReportLab keeps registered fonts globally.  Tie the name to bytes rather
     # than reusing a stale English face for a later CJK export in this process.
-    face = "CareerOSExport_" + _digest(font_path)[:12]
+    face = "OriwardExport_" + _digest(font_path)[:12]
     try:
         pdfmetrics.registerFont(TTFont(face, str(font_path), subfontIndex=0))
     except Exception as exc:
@@ -395,7 +395,7 @@ def _write_pdf(document, stream, font_path):
 
 
 def _parse_resume_markdown(content):
-    """Parse only CareerOS's generated resume grammar; reject every other Markdown."""
+    """Parse only Oriward's generated resume grammar; reject every other Markdown."""
     lines = content.replace("\r\n", "\n").split("\n")
     if not lines or not lines[0].startswith("# ") or not lines[0][2:].strip():
         _error("UNSUPPORTED_RESUME", "saved resume must begin with a generated '# Name' line")
@@ -412,7 +412,7 @@ def _parse_resume_markdown(content):
             footer = [line for line in lines[index:] if line]
             if (len(footer) != 2 or not footer[0].startswith("*来源记录：") or not footer[0].endswith("*")
                     or not footer[1].startswith("*发布/投递前请人工核对内容；") or not footer[1].endswith("*")):
-                _error("UNSUPPORTED_RESUME", "only CareerOS generated source-record footer may follow '---'")
+                _error("UNSUPPORTED_RESUME", "only Oriward generated source-record footer may follow '---'")
             break
         if value.startswith("## ") and value[3:].strip():
             current = {"heading": value[3:], "paragraphs": [], "bullets": [], "table": None}
@@ -448,8 +448,8 @@ def _load_resume(resume_id):
     root = Path(__file__).resolve().parents[4]
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
-    from careeros import feedback, services
-    from careeros.db import connect
+    from oriward import feedback, services
+    from oriward.db import connect
     try:
         rid = int(resume_id)
     except (TypeError, ValueError):
@@ -460,6 +460,10 @@ def _load_resume(resume_id):
         if row is None:
             _error("RESUME_NOT_FOUND", f"resume {rid} does not exist")
         resume = dict(row)
+        from oriward.experience_library import resume_validity
+        validity = resume_validity(db, resume)
+        if validity["needs_review"]:
+            _error("STALE_RESUME", "experience sources changed or were excluded; rebuild/review before export")
         path = services.resume_path(resume)
         if not path.is_file():
             _error("RESUME_NOT_FOUND", f"resume {rid} has no file at {path}")
@@ -563,7 +567,7 @@ def export_document(*, document=None, resume_id=None, output_dir, formats=("docx
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Bounded CareerOS document exporter")
+    parser = argparse.ArgumentParser(description="Bounded Oriward document exporter")
     parser.add_argument("--input", type=Path)
     parser.add_argument("--resume-id")
     parser.add_argument("--output-dir", type=Path)

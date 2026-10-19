@@ -11,10 +11,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import migrations, services as s, sources
-from careeros.core import actions, assertions, context, goals, pipeline, reflection, signals, twin
-from careeros.core.errors import ConflictError, NotFoundError
-from careeros.db import connect
+from oriward import migrations, services as s, sources
+from oriward.core import actions, assertions, context, goals, pipeline, reflection, signals, twin
+from oriward.core.errors import ConflictError, NotFoundError
+from oriward.db import connect
 
 
 class TwinCoreTest(unittest.TestCase):
@@ -22,8 +22,8 @@ class TwinCoreTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        env = patch.dict(os.environ, {"CAREEROS_DB": str(self.root / "db.sqlite3"),
-                                      "CAREEROS_OUTPUT_DIR": str(self.root / "resumes")})
+        env = patch.dict(os.environ, {"ORIWARD_DB": str(self.root / "db.sqlite3"),
+                                      "ORIWARD_OUTPUT_DIR": str(self.root / "resumes")})
         env.start()
         self.addCleanup(env.stop)
 
@@ -353,8 +353,8 @@ class TwinCoreTest(unittest.TestCase):
     # -- operations --------------------------------------------------------
     def test_migrations_are_idempotent(self):
         with connect() as conn:
-            first = migrations.apply(conn, Path(os.environ["CAREEROS_DB"]))
-            second = migrations.apply(conn, Path(os.environ["CAREEROS_DB"]))
+            first = migrations.apply(conn, Path(os.environ["ORIWARD_DB"]))
+            second = migrations.apply(conn, Path(os.environ["ORIWARD_DB"]))
             self.assertEqual(second["applied"], [])
             self.assertGreaterEqual(migrations.current_version(conn), 2)
         self.assertEqual(first["to"], max(m["version"] for m in migrations.MIGRATIONS))
@@ -362,7 +362,7 @@ class TwinCoreTest(unittest.TestCase):
     def test_fresh_database_creates_no_backup(self):
         # A brand-new empty database has nothing worth restoring.
         with connect() as conn:
-            migrations.apply(conn, Path(os.environ["CAREEROS_DB"]))
+            migrations.apply(conn, Path(os.environ["ORIWARD_DB"]))
         backups = list(self.root.glob("db.sqlite3.bak-*"))
         self.assertEqual(backups, [])
 
@@ -444,7 +444,7 @@ class TwinCoreTest(unittest.TestCase):
 
     def test_status_reports_health(self):
         status = twin.status()
-        self.assertEqual(status["schema_version"], 4)
+        self.assertEqual(status["schema_version"], max(m["version"] for m in migrations.MIGRATIONS))
         self.assertIn("jobs_without_pipeline", status["health"])
 
 

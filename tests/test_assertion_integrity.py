@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros.core import assertions, signals
-from careeros.core.errors import NotFoundError
+from oriward.core import assertions, signals
+from oriward.core.errors import NotFoundError
 
 
 class AssertionIntegrityTest(unittest.TestCase):
@@ -14,8 +14,8 @@ class AssertionIntegrityTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         patcher = patch.dict(os.environ, {
-            "CAREEROS_DB": str(Path(self.tmp.name) / "db.sqlite3"),
-            "CAREEROS_OUTPUT_DIR": str(Path(self.tmp.name) / "outputs"),
+            "ORIWARD_DB": str(Path(self.tmp.name) / "db.sqlite3"),
+            "ORIWARD_OUTPUT_DIR": str(Path(self.tmp.name) / "outputs"),
         })
         patcher.start()
         self.addCleanup(patcher.stop)

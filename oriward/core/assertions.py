@@ -142,6 +142,8 @@ def propose(*, subject: str, predicate: str, value, assertion_type: str,
     _require_choice("epistemic_status", status, EPISTEMIC_STATUSES)
     if status == "retracted":
         raise ValueError("Use belief retract to end a claim; do not propose a retracted one")
+    if source_type == "document" and status in ("user_stated", "user_confirmed"):
+        raise ValueError("A document verifies facts, not user agreement; use belief confirm for user confirmation")
     if source_type in NON_USER_SOURCES and status in USER_BACKED:
         raise ValueError("Non-user sources cannot create user-backed claims; propose the claim as inferred")
     if source_type in NON_USER_SOURCES and status != "inferred":

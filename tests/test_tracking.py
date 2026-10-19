@@ -5,8 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import services as s, sources, tracking
-from careeros.db import connect
+from oriward import services as s, sources, tracking
 
 
 class TrackingTests(unittest.TestCase):
@@ -14,8 +13,8 @@ class TrackingTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        env = patch.dict(os.environ, {"CAREEROS_DB": str(self.root / "db.sqlite3"),
-                                     "CAREEROS_OUTPUT_DIR": str(self.root / "resumes")})
+        env = patch.dict(os.environ, {"ORIWARD_DB": str(self.root / "db.sqlite3"),
+                                     "ORIWARD_OUTPUT_DIR": str(self.root / "resumes")})
         env.start()
         self.addCleanup(env.stop)
         s.save_profile({"display_name": "Fictional Candidate"})

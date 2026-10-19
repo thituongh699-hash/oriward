@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timezone
-from pathlib import Path
 from .db import connect, one, serialize, deserialize, now, audit
 from . import services as s
 
@@ -134,8 +134,43 @@ def _lineage(db, resume_id):
         ids.add(resume_id)
 
 
+def _packaging(bullet, text, facts, quotes):
+    """Validate the declared change contract; this is not semantic verification.
+
+    Exact mappings and a few obvious numeric/tool/scope additions are checkable
+    deterministically. The source Agent owns semantic classification and the
+    user still reviews the complete draft before use.
+    """
+    kind = bullet.get("change_type", "exact" if text in facts else "unclassified")
+    if kind not in {"exact", "wording_only", "new_facts", "unclassified"}:
+        raise s.ValidationError("change_type must be exact|wording_only|new_facts|unclassified")
+    additions = bullet.get("new_facts", [])
+    if not isinstance(additions, list) or any(not isinstance(v, str) or not v.strip() for v in additions):
+        raise s.ValidationError("new_facts must be an array of factual additions")
+    rationale = bullet.get("change_reason", "")
+    if kind == "exact" and text not in facts:
+        raise s.ValidationError("exact wording must be an existing factual action/outcome")
+    if kind == "wording_only":
+        if "new_facts" not in bullet or additions or not isinstance(rationale, str) or not rationale.strip():
+            raise s.ValidationError("wording_only requires explicit new_facts:[] and change_reason")
+        # A limited guard, deliberately not advertised as semantic proof.
+        pattern = (r"\d+(?:[.,]\d+)*|\b(?:Python|SQL|Excel|VBA|SPSS|PowerBI|Tableau|Java|"
+                   r"manager|director|leader|expert|led|managed|owned)\b|"
+                   r"负责人|总监|经理|主管|精通|独立负责|主导|付费成交|原账号")
+        target_tokens = set(re.findall(pattern, text, re.IGNORECASE))
+        source_tokens = set(re.findall(pattern, " ".join(quotes), re.IGNORECASE))
+        if {t.casefold() for t in target_tokens} - {t.casefold() for t in source_tokens}:
+            raise s.ValidationError("wording_only includes a new number, tool or scope marker; classify as new_facts")
+    if kind == "new_facts" and not additions:
+        raise s.ValidationError("new_facts classification requires an explicit nonempty new_facts list")
+    if additions and kind != "new_facts":
+        raise s.ValidationError("Factual additions must use change_type=new_facts")
+    return {"change_type": kind, "new_facts": additions, "change_reason": rationale,
+            "classification_source": "agent_declared", "verification": "source_mapping_and_limited_lexical_guards"}, kind in {"new_facts", "unclassified"}
+
+
 def revise_resume(data):
-    """Persist mapped wording; semantic rewrites stay pending user confirmation."""
+    """Persist sourced wording; declared factual additions stay pending."""
     s.validate_dict(data, ["base_resume_id", "reason", "sections"])
     base_id = _id(data["base_resume_id"], "base_resume_id")
     reason = _text(data["reason"], "reason")
@@ -148,6 +183,11 @@ def revise_resume(data):
             ensure_schema(db)
             base = one(db, "resumes", base_id)
             base_content = s.verify_resume(base).read_text(encoding="utf-8")
+            from .experience_library import ensure_resume_current, validate_for_resume, record_resume_sources
+            ensure_resume_current(db, base)
+            base_version = db.execute("SELECT factual_status FROM resume_versions WHERE resume_id=?", (base_id,)).fetchone()
+            if base_version and base_version["factual_status"] != "approved":
+                raise s.ValidationError("Base revision facts are pending; confirm or use an approved base")
             review_id = data.get("review_id")
             if review_id is not None:
                 _id(review_id, "review_id")
@@ -173,10 +213,7 @@ def revise_resume(data):
                 if eid in selected:
                     raise s.ValidationError("Duplicate experience section")
                 selected.append(eid)
-                exp = deserialize(one(db, "experiences", eid)["data"])
-                if not exp.get("approved_for_resume") or not exp.get("evidence") or any(
-                        e.get("status") not in {"user_confirmed", "document_verified"} for e in exp["evidence"]):
-                    raise s.ValidationError("Revision requires approved experiences with verified evidence")
+                exp = validate_for_resume(db, eid)
                 facts = exp["actions"] + exp["outcomes"]
                 sources = facts + [e["claim"] for e in exp["evidence"]]
                 if not isinstance(section["bullets"], list) or not section["bullets"]:
@@ -192,9 +229,11 @@ def revise_resume(data):
                     quotes = bullet["source_texts"]
                     if not isinstance(quotes, list) or not quotes or any(q not in sources for q in quotes):
                         raise s.ValidationError("source_texts must quote verified facts from the same experience")
-                    pending = pending or text not in facts
+                    classification, needs_confirmation = _packaging(bullet, text, facts, quotes)
+                    pending = pending or needs_confirmation
                     lines.append(f"- {text}")
-                    mapping.append({"experience_id": eid, "text": text, "source_texts": quotes})
+                    mapping.append({"experience_id": eid, "experience_version": exp["version"],
+                                    "text": text, "source_texts": quotes, **classification})
             content = prefix + marker + "\n".join(lines) + "\n\n---\n\n"
             job = one(db, "jobs", base["job_id"])
             content += f"*来源记录：岗位 {job['id']}（{job['company']} / {job['title']}）；经历 ID {', '.join(map(str, selected))}。*\n"
@@ -214,8 +253,11 @@ def revise_resume(data):
             db.execute("INSERT INTO resume_versions VALUES (?,?,?,?,?,?,?,?)",
                        (rid, base_id, review_id, serialize(feedback_ids), reason, serialize(mapping), status, now()))
             audit(db, "resume.revised", "resumes", rid, f"base={base_id};facts={status}")
+            record_resume_sources(db, rid, selected)
             return {"id": rid, "path": str(new_path), "sha256": digest, "base_resume_id": base_id,
-                    "factual_status": status, "requires_new_review": True}
+                    "factual_status": status, "requires_new_review": True,
+                    "whole_draft_review_required": True,
+                    "pending_new_facts": [m for m in mapping if m["change_type"] in {"new_facts", "unclassified"}]}
     except Exception:
         # Only delete the new artifact if this call actually created it.
         if new_path is not None and new_path.exists() and 'rid' in locals():
@@ -230,7 +272,10 @@ def confirm_revision(resume_id, *, human_confirmed=False):
         raise s.ValidationError("Reworded claims require direct user confirmation; pass --human-confirmed only after it")
     with connect() as db:
         ensure_schema(db)
-        s.verify_resume(one(db, "resumes", resume_id))
+        resume = one(db, "resumes", resume_id)
+        s.verify_resume(resume)
+        from .experience_library import ensure_resume_current
+        ensure_resume_current(db, resume)
         if db.execute("SELECT 1 FROM resume_versions WHERE resume_id=?", (resume_id,)).fetchone() is None:
             raise s.ValidationError("Resume is not a revision")
         db.execute("UPDATE resume_versions SET factual_status='approved' WHERE resume_id=?", (resume_id,))
@@ -245,6 +290,8 @@ def version_history(resume_id):
         rows = []
         for rid in sorted(_lineage(db, resume_id)):
             resume = dict(one(db, "resumes", rid))
+            from .experience_library import resume_validity
+            resume.update(resume_validity(db, resume))
             version = db.execute("SELECT * FROM resume_versions WHERE resume_id=?", (rid,)).fetchone()
             resume["version"] = dict(version) if version else None
             if version:
@@ -273,6 +320,8 @@ def resolve_feedback(feedback_id, review_id, note):
             raise s.ValidationError("Resolution requires a new review of a revision linked to this feedback")
         resume = one(db, "resumes", review["resume_id"])
         s.verify_resume(resume)
+        from .experience_library import ensure_resume_current
+        ensure_resume_current(db, resume)
         if review["resume_sha256"] != resume["sha256"]:
             raise s.ValidationError("Resolution review does not match this resume")
         current_job = deserialize(one(db, "jobs", resume["job_id"])["data"])

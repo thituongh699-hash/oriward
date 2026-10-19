@@ -73,7 +73,7 @@ def _live_rows(conn, assertion_type=None, statuses=None, limit=20, settled=False
         # point, not an identity trait. It stays in `uncertainties` until the
         # user confirms it or a second source supports it.
         clauses.append("NOT (epistemic_status='user_stated' AND confidence='low')")
-    params.append(limit)
+    params.append(limit if limit is not None else -1)
     return conn.execute(
         f"SELECT * FROM user_assertions WHERE {' AND '.join(clauses)} "
         "ORDER BY CASE confidence WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, "
@@ -81,22 +81,24 @@ def _live_rows(conn, assertion_type=None, statuses=None, limit=20, settled=False
 
 
 def _experience_base(conn) -> dict:
-    rows = conn.execute("SELECT id,data FROM experiences ORDER BY id DESC").fetchall()
+    from .. import experience_library
+    rows = experience_library.list_current(conn=conn)
     approved = 0
     recent = []
     for row in rows:
-        data = deserialize(row["data"])
-        if data.get("approved_for_resume"):
+        data = row["data"] if isinstance(row["data"], dict) else deserialize(row["data"])
+        if data.get("approved_for_resume") and not data.get("needs_review"):
             approved += 1
         if len(recent) < 3:
             recent.append({"id": row["id"], "event": str(data.get("event", ""))[:40],
-                           "approved": bool(data.get("approved_for_resume"))})
+                           "approved": bool(data.get("approved_for_resume")) and not data.get("needs_review"),
+                           "version": data.get("version", 1), "needs_review": bool(data.get("needs_review"))})
     return {"total": len(rows), "approved_for_resume": approved, "recent": recent}
 
 
 def _directions(conn) -> list[dict]:
     items = []
-    for row in _live_rows(conn, "career_hypothesis", limit=6):
+    for row in _live_rows(conn, "career_hypothesis", limit=None):
         value = deserialize(row["value_json"])
         links = assertions.links_of(conn, row["id"])
         items.append({
@@ -114,7 +116,7 @@ def _directions(conn) -> list[dict]:
             "SELECT d.id,d.data FROM career_directions d WHERE NOT EXISTS "
             "(SELECT 1 FROM user_assertions a WHERE a.source_ref='career_directions:' || d.id "
             "OR (json_valid(a.value_json) AND json_extract(a.value_json,'$.legacy_direction_id')=d.id)) "
-            "ORDER BY d.id DESC LIMIT 3").fetchall()
+            "ORDER BY d.id DESC").fetchall()
         for row in legacy:
             data = deserialize(row["data"])
             items.append({
@@ -246,56 +248,84 @@ def _recent_signals(conn, limit: int = 3) -> list[dict]:
 
 
 def _fit(data: dict, max_chars: int) -> dict:
-    """Shrink the brief by dropping the least critical tail items first."""
-    plan = [
-        ("who_could_i_become", "directions"),
-        ("where_i_am_now", "active"),
-        ("where_i_am_now", "recent_signals"),
-        ("where_i_am_now", "needs_review"),
-        ("where_i_am_now", "excluded"),
-        ("what_next", "actions"),
-        (None, "recent_changes"),
-        ("who_am_i", "strengths"),
-        ("who_am_i", "values"),
-        ("who_am_i", "preferences"),
-        (None, "uncertainties"),
-    ]
-    dropped: dict[str, int] = {}
+    """Fit the *printed JSON* budget; omissions always remain visible.
 
-    def size() -> int:
-        return len(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
-
-    guard = 0
-    while size() > max_chars and guard < 200:
-        guard += 1
-        progressed = False
-        for parent, key in plan:
-            bucket = data[key] if parent is None else data[parent][key]
-            floor = 1 if key in ("directions", "active", "actions", "strengths") else 0
-            if isinstance(bucket, list) and len(bucket) > floor:
-                bucket.pop()
-                label = f"{parent}.{key}" if parent else key
-                dropped[label] = dropped.get(label, 0) + 1
-                progressed = True
-                break
-        if not progressed:
-            break
-    if size() > max_chars:
-        # Last resort: the fixed scaffolding may itself exceed a very small
-        # budget. Drop the human notes and drill-down hints, and report it.
-        data.pop("drill_down", None)
-        for parent, key in (("who_could_i_become", "note"), ("what_next", "rule")):
-            bucket = data.get(parent)
-            if isinstance(bucket, dict):
-                bucket.pop(key, None)
+    Keep constraints and continuation until less critical history is removed.
+    Small impossible budgets preserve the section skeleton and report overflow.
+    """
+    if isinstance(max_chars, bool) or not isinstance(max_chars, int) or max_chars < 1:
+        raise ValueError("max_chars must be a positive integer")
+    dropped = data.pop("_omitted", {})
     budget = {"max_chars": max_chars, "chars": 0, "truncated": dropped,
               "complete": not dropped, "over_budget": False}
     data["context_budget"] = budget
-    for _ in range(3):
-        budget["chars"] = size()
-    if budget["chars"] > max_chars:
-        budget["over_budget"] = True
+
+    def size():
+        for _ in range(4):
+            budget["chars"] = len(json.dumps(data, ensure_ascii=False, indent=2, default=str))
+        return budget["chars"]
+
+    def note(path, count=1):
+        dropped[path] = dropped.get(path, 0) + count
         budget["complete"] = False
+
+    # `why` used to duplicate claims even after their primary card was dropped.
+    if size() > max_chars and data.get("why"):
+        note("why", len(data["why"]))
+        data["why"] = {}
+    paths = [
+        (None, "recent_changes"), ("where_i_am_now", "recent_signals"),
+        ("who_could_i_become", "directions"), ("where_i_am_now", "active"),
+        ("where_i_am_now", "needs_review"), ("where_i_am_now", "excluded"),
+        ("where_i_am_now", "waiting"), ("where_i_am_now", "blocked"),
+        ("continuation", "paused_branches"),
+        ("who_am_i", "strengths"), ("who_am_i", "values"),
+        ("who_am_i", "preferences"), (None, "uncertainties"),
+        ("who_am_i", "facts"), ("who_am_i", "evidence_base.recent"),
+        ("where_i_am_now", "goals"), ("what_next", "actions"),
+        ("who_am_i", "constraints"),
+    ]
+    if size() > max_chars:
+        for parent, key in ((None, "drill_down"), ("who_could_i_become", "note"), ("what_next", "rule")):
+            bucket = data if parent is None else data[parent]
+            if key in bucket:
+                bucket.pop(key)
+                note(key if parent is None else parent + "." + key)
+            if size() <= max_chars:
+                break
+    for parent, key in paths:
+        bucket = data if parent is None else data[parent]
+        parts = key.split(".")
+        for part in parts[:-1]:
+            bucket = bucket.get(part, {})
+        values = bucket.get(parts[-1], [])
+        while isinstance(values, list) and values and size() > max_chars:
+            values.pop()
+            note(key if parent is None else parent + "." + key)
+    # A user can enter an arbitrarily long current topic or identity. Shorten
+    # only text leaves, preserving their IDs, state and honest omission marker.
+    def shorten(value, path=""):
+        changed = False
+        if isinstance(value, dict):
+            for key, item in list(value.items()):
+                if key == "context_budget":
+                    continue
+                label = path + "." + key if path else key
+                if isinstance(item, str) and len(item) > 60:
+                    value[key] = item[:60] + "…"
+                    changed = True
+                elif isinstance(item, (dict, list)):
+                    changed = shorten(item, label) or changed
+        elif isinstance(value, list):
+            for item in value:
+                changed = shorten(item, path) or changed
+        return changed
+    if size() > max_chars and shorten(data):
+        note("text_shortened")
+    budget["over_budget"] = size() > max_chars
+    if budget["over_budget"]:
+        budget["complete"] = False
+    size()
     return data
 
 
@@ -310,15 +340,15 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
         identity = {key: value for key, value in identity.items() if value}
 
         strengths = [_claim(conn, row) for row in _live_rows(
-            conn, "skill_hypothesis", statuses=assertions.USER_BACKED, limit=4, settled=True)]
+            conn, "skill_hypothesis", statuses=assertions.USER_BACKED, limit=None, settled=True)]
         values = [_claim(conn, row) for row in _live_rows(
-            conn, "value", statuses=assertions.USER_BACKED, limit=3, settled=True)]
+            conn, "value", statuses=assertions.USER_BACKED, limit=None, settled=True)]
         preferences = [_claim(conn, row) for row in _live_rows(
-            conn, "preference", statuses=assertions.USER_BACKED, limit=3, settled=True)]
+            conn, "preference", statuses=assertions.USER_BACKED, limit=None, settled=True)]
         constraints = [_claim(conn, row, with_basis=False) for row in _live_rows(
-            conn, "constraint", statuses=assertions.USER_BACKED, limit=3, settled=True)]
+            conn, "constraint", statuses=assertions.USER_BACKED, limit=None, settled=True)]
         facts = [_claim(conn, row, with_basis=False) for row in _live_rows(
-            conn, "fact", statuses=assertions.USER_BACKED, limit=3, settled=True)]
+            conn, "fact", statuses=assertions.USER_BACKED, limit=None, settled=True)]
 
         directions = _directions(conn)
         goals = _active_goals(conn)
@@ -364,8 +394,12 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
                 "versions": len(record["chain"]),
             }
 
+    from .. import onboarding
+    session = onboarding.continuation()
+    continuation = {key: session[key] for key in ("intent", "current_topic", "paused_branches")}
     data = {
         "generated_at": now(),
+        "continuation": continuation,
         "who_am_i": {
             "identity": identity,
             "facts": facts,
@@ -402,10 +436,10 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
         "recent_changes": recent_changes,
         "uncertainties": uncertainties,
         "drill_down": {
-            "assertion": "python -m careeros context inspect --assertion-id <id>",
-            "belief_history": "python -m careeros belief history --id <id>",
-            "job": "python -m careeros pipeline show --job-id <id>",
-            "decision": "python -m careeros decision show --id <id>",
+            "assertion": "python -m oriward context inspect --assertion-id <id>",
+            "belief_history": "python -m oriward belief history --id <id>",
+            "job": "python -m oriward pipeline show --job-id <id>",
+            "decision": "python -m oriward decision show --id <id>",
         },
     }
     return _fit(data, max_chars)

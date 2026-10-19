@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import services as s, sources, assessment as a, feedback as f
-from careeros.db import now, connect
+from oriward import services as s, sources, assessment as a, feedback as f
+from oriward.db import now
 
 
 class FeedbackTests(unittest.TestCase):
@@ -16,8 +16,8 @@ class FeedbackTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        env = patch.dict(os.environ, {"CAREEROS_DB": str(self.root / "db.sqlite3"),
-                                     "CAREEROS_OUTPUT_DIR": str(self.root / "resumes")})
+        env = patch.dict(os.environ, {"ORIWARD_DB": str(self.root / "db.sqlite3"),
+                                     "ORIWARD_OUTPUT_DIR": str(self.root / "resumes")})
         env.start()
         self.addCleanup(env.stop)
         s.save_profile({"display_name": "Fictional Candidate"})
@@ -84,6 +84,51 @@ class FeedbackTests(unittest.TestCase):
         f.confirm_revision(revision["id"], human_confirmed=True)
         self.assertEqual(self.review(revision)["grade"], "A")
         self.assertTrue(s.prepare_application(self.job, revision["id"]))
+
+    def test_declared_source_preserving_packaging_inherits_approval(self):
+        revision = self.revision(sections=[{"experience_id": self.exp, "bullets": [{
+            "text": "Produced a Python report", "source_texts": ["Built a Python report"],
+            "change_type": "wording_only", "new_facts": [],
+            "change_reason": "Professional action wording; tool, scope and result unchanged"}]}])
+        self.assertEqual(revision["factual_status"], "approved")
+        self.assertTrue(revision["whole_draft_review_required"])
+        mapping = f.version_history(revision["id"])[-1]["version"]["claim_map"][0]
+        self.assertEqual(mapping["change_type"], "wording_only")
+        self.assertEqual(mapping["experience_version"], 1)
+        self.assertEqual(mapping["classification_source"], "agent_declared")
+        self.assertNotIn("semantic_verified", mapping)
+
+    def test_added_metrics_are_separately_pending_and_cannot_be_wording_only(self):
+        bullet = {"text": "Built 30 Python reports", "source_texts": ["Built a Python report"],
+                  "change_type": "wording_only", "new_facts": [], "change_reason": "Rewording"}
+        with self.assertRaisesRegex(s.ValidationError, "new number"):
+            self.revision(sections=[{"experience_id": self.exp, "bullets": [bullet]}])
+        bullet.update(change_type="new_facts", new_facts=["Report count was 30"])
+        revision = self.revision(sections=[{"experience_id": self.exp, "bullets": [bullet]}])
+        self.assertEqual(revision["factual_status"], "pending")
+        self.assertEqual(revision["pending_new_facts"][0]["new_facts"], ["Report count was 30"])
+        with self.assertRaises(s.ValidationError):
+            s.prepare_application(self.job, revision["id"])
+
+    def test_packaging_requires_explicit_declaration_not_only_a_source_quote(self):
+        bullet = {"text": "Produced a Python report", "source_texts": ["Built a Python report"],
+                  "change_type": "wording_only"}
+        with self.assertRaisesRegex(s.ValidationError, "explicit"):
+            self.revision(sections=[{"experience_id": self.exp, "bullets": [bullet]}])
+        bullet.update(change_type="new_facts", new_facts=[])
+        with self.assertRaisesRegex(s.ValidationError, "nonempty"):
+            self.revision(sections=[{"experience_id": self.exp, "bullets": [bullet]}])
+
+    def test_excluded_or_corrected_experience_blocks_revisions_and_confirmation(self):
+        from oriward import experience_library as lib
+        pending = self.revision(rewrite=True)
+        lib.exclude(self.exp, reason="User removed this experience")
+        with self.assertRaisesRegex(s.ValidationError, "needs_review"):
+            self.revision()
+        with self.assertRaisesRegex(s.ValidationError, "needs_review"):
+            f.confirm_revision(pending["id"], human_confirmed=True)
+        history = f.version_history(pending["id"])
+        self.assertTrue(all(item["needs_review"] for item in history))
 
     def test_actual_feedback_requires_submitted_matching_application(self):
         with self.assertRaisesRegex(s.ValidationError, "application_id"):
@@ -163,7 +208,7 @@ class FeedbackTests(unittest.TestCase):
 
     def test_cli_persistence_and_structured_errors(self):
         def run(*args):
-            result = subprocess.run([sys.executable, "-m", "careeros", *args], capture_output=True,
+            result = subprocess.run([sys.executable, "-m", "oriward", *args], capture_output=True,
                                     text=True, encoding="utf-8", cwd=Path(__file__).resolve().parents[1])
             return result, json.loads(result.stdout or result.stderr)
         result, packet = run("review", "packet", "--resume-id", str(self.resume["id"]))

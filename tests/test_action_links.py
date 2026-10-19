@@ -6,17 +6,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import sources
-from careeros.core import actions, goals, pipeline, relations
-from careeros.core.errors import NotFoundError
-from careeros.db import connect, now, serialize
+from oriward import sources
+from oriward.core import actions, goals, pipeline, relations
+from oriward.core.errors import NotFoundError
+from oriward.db import connect, now, serialize
 
 
 class ActionLinkTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        env = patch.dict(os.environ, {"CAREEROS_DB": str(Path(self.tmp.name) / "test.sqlite3")})
+        env = patch.dict(os.environ, {"ORIWARD_DB": str(Path(self.tmp.name) / "test.sqlite3")})
         env.start()
         self.addCleanup(env.stop)
 

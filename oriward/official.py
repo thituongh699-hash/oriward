@@ -34,7 +34,7 @@ MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MIN_REQUEST_INTERVAL_SECONDS = 2.0
 PAGE_TTL = timedelta(hours=1)
 ROBOTS_TTL = timedelta(hours=24)
-USER_AGENT = "CareerOS/0.1 official-job-reader"
+USER_AGENT = "Oriward/0.2.0 official-job-reader"
 MIN_HEURISTIC_JD_CHARS = 400
 _MIN_JD_KEYWORD = re.compile(
     r"岗位职责|职位描述|工作职责|职位职责|任职要求|任职资格|岗位要求|"
@@ -48,7 +48,8 @@ _rate_lock = threading.Lock()
 
 
 def _cache_root() -> Path:
-    configured = os.environ.get("CAREEROS_OFFICIAL_CACHE")
+    from .legacy import environment
+    configured = environment("ORIWARD_OFFICIAL_CACHE")
     if configured:
         return Path(configured).expanduser().resolve()
     return database_path().parent / "cache" / "official"

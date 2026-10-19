@@ -21,8 +21,8 @@ def main():
     args = parser.parse_args()
     folder = Path(args.output).resolve()
     folder.mkdir(parents=True, exist_ok=False)
-    environment = dict(os.environ, CAREEROS_DB=str(folder / "demo.sqlite3"),
-                       CAREEROS_OUTPUT_DIR=str(folder / "resumes"),
+    environment = dict(os.environ, ORIWARD_DB=str(folder / "demo.sqlite3"),
+                       ORIWARD_OUTPUT_DIR=str(folder / "resumes"),
                        PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1")
     commands = []
 
@@ -32,7 +32,7 @@ def main():
         return str(path)
 
     def run(*argv, error=None):
-        result = subprocess.run([sys.executable, "-m", "careeros", *map(str, argv)],
+        result = subprocess.run([sys.executable, "-m", "oriward", *map(str, argv)],
                                 cwd=ROOT, env=environment, capture_output=True,
                                 text=True, encoding="utf-8", timeout=30)
         entry = {"command": list(map(str, argv)), "returncode": result.returncode}
@@ -52,7 +52,7 @@ def main():
             raise AssertionError(message)
 
     try:
-        check(run("init")["schema_version"] == 4, "schema v4")
+        check(run("init")["schema_version"] == 5, "schema v5")
         run("profile", "save", "--file", save("profile.json", {
             "display_name": "职业孪生验收候选人（虚构）", "values": ["可迁移能力"],
             "hard_constraints": ["不接受长期出差"]}))

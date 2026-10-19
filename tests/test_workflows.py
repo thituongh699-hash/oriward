@@ -1,20 +1,19 @@
 import csv
-import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import services as s
-from careeros.db import connect
+from oriward import services as s
+from oriward.db import connect
 
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.env = patch.dict(os.environ, {"CAREEROS_DB": str(Path(self.tmp.name) / "test.sqlite3")})
+        self.env = patch.dict(os.environ, {"ORIWARD_DB": str(Path(self.tmp.name) / "test.sqlite3")})
         self.env.start()
         self.addCleanup(self.env.stop)
         s.save_profile({"display_name": "Test Person", "contact": {"email": "test@example.invalid"}})

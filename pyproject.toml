@@ -1,22 +1,23 @@
 [project]
-name = "careeros-local"
+name = "oriward-local"
 version = "0.2.0"
 description = "Evidence-backed career growth workbench for students and recent graduates, powered by your chosen agent"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
-authors = [{ name = "CareerOS contributors" }]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Oriward contributors" }]
 keywords = ["career", "job-search", "resume", "students", "graduates", "local-first", "sqlite", "agent"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Office/Business",
 ]
 # No third-party runtime dependencies: the CLI is standard library only.
@@ -24,25 +25,22 @@ dependencies = []
 
 # Fill these in before publishing (the project has no public URL yet).
 # [project.urls]
-# Homepage = "https://github.com/<your-account>/careeros"
-# Issues = "https://github.com/<your-account>/careeros/issues"
+# Homepage = "https://github.com/<your-account>/oriward"
+# Issues = "https://github.com/<your-account>/oriward/issues"
 
 [project.optional-dependencies]
 dev = ["ruff>=0.6"]
 documents = ["python-docx>=1.2,<2", "reportlab>=4.4,<6", "pypdf>=5,<7"]
 
 [project.scripts]
-careeros = "careeros.cli:main"
+oriward = "oriward.cli:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-license-files = ["LICENSE"]
-
 [tool.setuptools.packages.find]
-include = ["careeros*"]
+include = ["oriward*"]
 
 [tool.ruff]
 target-version = "py310"

@@ -6,8 +6,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import public_search
-from careeros.sources import SourceError
+from oriward import public_search
+from oriward.sources import SourceError
 
 
 ROBOTS_ALLOW = "User-agent: *\nAllow: /\n"
@@ -41,7 +41,7 @@ DETAIL_HTML = """<!doctype html><html><head><meta charset="utf-8"></head><body>
 class PublicSearchTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.env = patch.dict(os.environ, {"CAREEROS_CACHE_DIR": self.temp.name})
+        self.env = patch.dict(os.environ, {"ORIWARD_CACHE_DIR": self.temp.name})
         self.env.start()
 
     def tearDown(self):

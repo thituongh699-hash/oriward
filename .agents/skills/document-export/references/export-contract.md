@@ -24,7 +24,7 @@ Structured input uses plain strings:
 
 HTML/XML-like strings are literal content, never instructions or formatting injection. Retain uncertainty, source dates and actual/mock/hypothesis labels where meaningful. The helper validates structure/font coverage; the Agent selects supported facts.
 
-Resumes require `--resume-id`. Resume-like structured headings (e.g. 个人简介、相关经历、教育经历、实习经历、工作经历、项目经历) produce `RESUME_REQUIRES_ID`. Registered resume export reads the existing generated Markdown, removes the internal provenance footer and rejects unsupported structure instead of dropping content. Pending revisions require factual approval first.
+Resumes require `--resume-id`. Resume-like structured headings (e.g. 个人简介、相关经历、教育经历、实习经历、工作经历、项目经历) produce `RESUME_REQUIRES_ID`. Registered resume export reads the existing generated Markdown, removes the internal provenance footer and rejects unsupported structure instead of dropping content. Pending factual additions require approval first; changed/excluded experience sources require a rebuilt current resume. Pure sourced wording inherits factual approval, with final draft review.
 
 `--output-dir` must be new and its parent exist. Default `--formats docx,pdf`; choose one only if requested. `--font <local-font>` selects embeddable TrueType for PDF. Files plus `manifest.json` record export time, source IDs where applicable, formats, font and sizes.
 

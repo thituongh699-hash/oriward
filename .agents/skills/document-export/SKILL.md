@@ -1,6 +1,6 @@
 ---
 name: document-export
-description: Convert an existing registered CareerOS resume or reviewed career plan into editable DOCX and readable PDF, then inspect rendered pages. Use for local format conversion, not content revision, arbitrary Word templates or application submission.
+description: Convert an existing registered Oriward resume or reviewed career plan into editable DOCX and readable PDF, then inspect rendered pages. Use for local format conversion, not content revision, arbitrary Word templates or application submission.
 ---
 
 # Career document export
@@ -22,4 +22,4 @@ Reopen both files and `manifest.json`; check titles, paragraphs, bullets and tab
 
 Generation is not visual approval. If a font or renderer is unavailable, retain drafts and report the missing capability and unperformed checks; never rename another format to claim success.
 
-Conversion does not create or change any CareerOS record: it confirms no claim, changes no grade, completes no action and records no application. Upload, email, login and submission need separate authorization. Report output paths, source ID/input and visual inspection limits.
+Conversion does not create or change any Oriward record: it confirms no claim, changes no grade, completes no action and records no application. Upload, email, login and submission need separate authorization. Report output paths, source ID/input and visual inspection limits.

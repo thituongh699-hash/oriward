@@ -17,6 +17,8 @@ jobs:
   test:
     name: ${{ matrix.os }} / py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
+    env:
+      ORIWARD_DB: ${{ runner.temp }}/oriward-ci/oriward.sqlite3
     strategy:
       fail-fast: false
       matrix:
@@ -27,6 +29,8 @@ jobs:
             python-version: "3.12"
           - os: ubuntu-latest
             python-version: "3.13"
+          - os: ubuntu-latest
+            python-version: "3.14"
           - os: windows-latest
             python-version: "3.13"
           - os: macos-latest
@@ -45,29 +49,29 @@ jobs:
           python -m pip install -e .
 
       - name: Byte-compile (syntax check)
-        run: python -m compileall -q careeros scripts
+        run: python -m compileall -q oriward scripts
 
       - name: Unit tests
         run: python -m unittest discover -s tests -v
 
       - name: CLI smoke (isolated database, no network)
         env:
-          CAREEROS_DB: ${{ runner.temp }}/smoke/careeros.sqlite3
+          ORIWARD_DB: ${{ runner.temp }}/smoke/oriward.sqlite3
         run: |
-          python -m careeros init
-          python -m careeros twin status
-          python -m careeros context brief --max-chars 1200
-          python -m careeros jobs import --csv data/examples/jobs.csv
-          python -m careeros jobs card --id 1
+          python -m oriward init
+          python -m oriward twin status
+          python -m oriward context brief --max-chars 1200
+          python -m oriward jobs import --csv data/examples/jobs.csv
+          python -m oriward jobs card --id 1
 
       - name: Optional extension stays off by default
         shell: python
         env:
-          CAREEROS_ENABLE_LIEPIN: "0"
+          ORIWARD_ENABLE_LIEPIN: "0"
         run: |
           import json, subprocess, sys
           result = subprocess.run(
-              [sys.executable, "-m", "careeros", "jobs", "search", "--provider", "liepin", "--query", "test"],
+              [sys.executable, "-m", "oriward", "jobs", "search", "--provider", "liepin", "--query", "test"],
               check=True, capture_output=True, text=True, encoding="utf-8",
           )
           data = json.loads(result.stdout)
@@ -78,6 +82,9 @@ jobs:
       - name: Fictional end-to-end workflow (no network)
         run: python scripts/demo_hiring_loop.py --output outputs/ci-hiring-loop-demo
 
+      - name: Fictional decision lifecycle (no network)
+        run: python scripts/demo_twin_lifecycle.py --output outputs/ci-twin-demo
+
       - name: Optional document export dependencies
         if: matrix.python-version == '3.13'
         run: python -m pip install -e ".[documents]"
@@ -85,3 +92,46 @@ jobs:
       - name: Document export behavior
         if: matrix.python-version == '3.13'
         run: python -m unittest discover -s tests -p test_document_export.py -v
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Build and check distribution metadata
+        run: |
+          python -m pip install build twine ruff
+          python -m ruff check oriward scripts tests .agents/skills/document-export/scripts
+          python -m build
+          python -m twine check dist/*
+      - name: Verify source distribution includes Agent workflows
+        shell: python
+        run: |
+          from pathlib import Path, PurePosixPath
+          import tarfile
+          with tarfile.open(next(Path("dist").glob("*.tar.gz"))) as archive:
+              names = [PurePosixPath(member.name) for member in archive.getmembers() if member.isfile()]
+          files = {str(PurePosixPath(*path.parts[1:])) for path in names}
+          skills = {name for name in files if name.startswith(".agents/skills/") and name.endswith("/SKILL.md")}
+          assert len(skills) == 9, skills
+          assert {"AGENTS.md", "docs/WORKFLOWS.md", "scripts/doctor.py", "tests/test_skill_manifest.py"} <= files
+          assert {
+              "docs/assets/oriward-architecture.png",
+              "docs/assets/oriward-cover.png",
+              "docs/assets/oriward-poster.png",
+              "scripts/render_readme_assets.py",
+          } <= files
+          assert not any(".." in path.parts or path.is_absolute() for path in names)
+          assert not any(name.startswith(("data/private/", "outputs/", ".workbuddy/")) for name in files)
+          print("ok: source workflows present; private state excluded")
+      - name: Install wheel outside source tree
+        working-directory: ${{ runner.temp }}
+        env:
+          ORIWARD_DB: ${{ runner.temp }}/wheel-smoke/oriward.sqlite3
+        run: |
+          python -m pip install "${{ github.workspace }}"/dist/*.whl
+          python -c "import oriward, pathlib; module = pathlib.Path(oriward.__file__).resolve(); checkout = pathlib.Path(r'${{ github.workspace }}').resolve(); assert checkout not in module.parents, module; print(f'installed package: {module}')"
+          oriward init
+          oriward onboarding missing

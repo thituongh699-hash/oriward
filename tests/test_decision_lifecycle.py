@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import migrations, sources
-from careeros.core import actions, assertions, context, decisions, goals, pipeline
-from careeros.db import connect, now
+from oriward import migrations, sources
+from oriward.core import actions, assertions, context, decisions, goals, pipeline
+from oriward.db import connect, now
 
 
 class DecisionLifecycleTests(unittest.TestCase):
@@ -17,8 +17,8 @@ class DecisionLifecycleTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        env = patch.dict(os.environ, {"CAREEROS_DB": str(self.root / "db.sqlite3"),
-                                      "CAREEROS_OUTPUT_DIR": str(self.root / "resumes")})
+        env = patch.dict(os.environ, {"ORIWARD_DB": str(self.root / "db.sqlite3"),
+                                      "ORIWARD_OUTPUT_DIR": str(self.root / "resumes")})
         env.start()
         self.addCleanup(env.stop)
         self.job = sources.import_records([{
@@ -231,12 +231,13 @@ class MigrationIntegrityTests(unittest.TestCase):
             conn = sqlite3.connect(path)
             conn.row_factory = sqlite3.Row
             migrations.apply(conn, path)
-            broken = {"version": 5, "name": "broken_test", "sql": "CREATE TABLE partial_test (id INTEGER);",
+            current = max(m["version"] for m in migrations.MIGRATIONS)
+            broken = {"version": current + 1, "name": "broken_test", "sql": "CREATE TABLE partial_test (id INTEGER);",
                       "post": lambda conn: conn.execute("SELECT * FROM missing_table_for_test")}
             with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS + [broken]):
                 with self.assertRaises(sqlite3.OperationalError):
                     migrations.apply(conn, path)
-            self.assertEqual(migrations.current_version(conn), 4)
+            self.assertEqual(migrations.current_version(conn), current)
             self.assertIsNone(conn.execute("SELECT name FROM sqlite_master WHERE name='partial_test'").fetchone())
             conn.close()
 

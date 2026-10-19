@@ -4,7 +4,7 @@ import io
 import re
 import unittest
 
-from careeros import cli
+from oriward import cli
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = {
@@ -49,8 +49,8 @@ class SkillManifestTests(unittest.TestCase):
             self.assertIn("Career Twin Core contract", content, skill)
 
     def test_documented_commands_exist(self):
-        """Every `python -m careeros ...` in a skill must at least parse."""
-        pattern = re.compile(r"python -m careeros ([a-z][a-z-]*)(?: ([a-z][a-z-]*))?")
+        """Every `python -m oriward ...` in a skill must at least parse."""
+        pattern = re.compile(r"python -m oriward ([a-z][a-z-]*)(?: ([a-z][a-z-]*))?")
         folder = ROOT / ".agents" / "skills"
         commands = set()
         for skill in SKILLS:
@@ -68,7 +68,7 @@ class SkillManifestTests(unittest.TestCase):
     def test_document_export_is_conversion_only(self):
         content = (ROOT / ".agents" / "skills" / "document-export" / "SKILL.md").read_text(encoding="utf-8")
         self.assertNotIn("Career Twin Core contract", content)
-        self.assertIn("does not create or change any CareerOS record", content)
+        self.assertIn("does not create or change any Oriward record", content)
         self.assertNotIn("hash", content.lower())
 
 

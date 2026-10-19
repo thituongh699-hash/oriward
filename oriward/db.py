@@ -1,21 +1,25 @@
 """SQLite repository; personal data is stored outside version control.
 
-Structural changes live in :mod:`careeros.migrations`. This module only opens
+Structural changes live in :mod:`oriward.migrations`. This module only opens
 connections and exposes tiny shared helpers, so a skill never has to know which
 schema version the local database is at.
 """
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from . import migrations
+from .legacy import LEGACY_DATABASE_NAME, environment
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_SOURCE_ROOT = Path(__file__).resolve().parent.parent
+# Source checkouts keep their data beside the Agent workflow. A wheel contains
+# only the CLI: use the caller's workspace, never write into site-packages.
+PROJECT_ROOT = (_SOURCE_ROOT if (_SOURCE_ROOT / "AGENTS.md").is_file()
+                and (_SOURCE_ROOT / ".agents" / "skills").is_dir() else Path.cwd().resolve())
 
 #: Baseline DDL, kept as an alias for callers that create a schema by hand.
 SCHEMA = migrations.BASELINE
@@ -28,8 +32,13 @@ def now() -> str:
 
 
 def database_path() -> Path:
-    value = os.environ.get("CAREEROS_DB")
-    return Path(value).expanduser().resolve() if value else PROJECT_ROOT / "data" / "private" / "careeros.sqlite3"
+    value = environment("ORIWARD_DB")
+    if value:
+        return Path(value).expanduser().resolve()
+    current = PROJECT_ROOT / "data" / "private" / "oriward.sqlite3"
+    previous = current.with_name(LEGACY_DATABASE_NAME)
+    # Reuse existing state in place; never silently create an empty replacement.
+    return previous if not current.exists() and previous.exists() else current
 
 
 def migrate(connection) -> None:

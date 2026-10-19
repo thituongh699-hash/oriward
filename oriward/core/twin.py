@@ -58,8 +58,9 @@ def sync_legacy() -> dict:
         profile = deserialize(profile_row["data"]) if profile_row else {}
         directions = [(row["id"], deserialize(row["data"]))
                       for row in conn.execute("SELECT id,data FROM career_directions ORDER BY id")]
-        experiences = [(row["id"], deserialize(row["data"]))
-                       for row in conn.execute("SELECT id,data FROM experiences ORDER BY id")]
+        from ..experience_library import list_current
+        experiences = [(row["id"], row["data"]) for row in list_current(conn=conn)
+                       if not row["data"]["needs_review"]]
         jobs = [row["id"] for row in conn.execute("SELECT id FROM jobs ORDER BY id")]
         known_pipeline = {row["job_id"] for row in conn.execute("SELECT job_id FROM job_pipeline")}
         applied_jobs = {row["job_id"] for row in conn.execute("SELECT DISTINCT job_id FROM applications")}
@@ -267,13 +268,13 @@ def status() -> dict:
                 "SELECT id FROM career_goals WHERE status IN ('active','exploring')"))
     next_steps = []
     if health["jobs_without_pipeline"]:
-        next_steps.append("python -m careeros twin sync-legacy")
+        next_steps.append("python -m oriward twin sync-legacy")
     if health["inferred_never_confirmed"]:
-        next_steps.append("python -m careeros belief list --status inferred")
+        next_steps.append("python -m oriward belief list --status inferred")
     if health["overdue_actions"]:
-        next_steps.append("python -m careeros action list --sort due")
+        next_steps.append("python -m oriward action list --sort due")
     if not counts["career_goals"]:
-        next_steps.append("python -m careeros goal add --file <goal.json>")
+        next_steps.append("python -m oriward goal add --file <goal.json>")
     return {"schema_version": version, "migrations": applied, "counts": counts,
             "health": health, "suggested_next": next_steps}
 

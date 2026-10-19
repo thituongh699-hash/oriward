@@ -6,15 +6,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import sources
-from careeros.db import connect, deserialize
+from oriward import sources
+from oriward.db import connect, deserialize
 
 
 class SourceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.env = patch.dict(os.environ, {"CAREEROS_DB": str(Path(self.tmp.name) / "sources.sqlite3")})
+        self.env = patch.dict(os.environ, {"ORIWARD_DB": str(Path(self.tmp.name) / "sources.sqlite3")})
         self.env.start()
         self.addCleanup(self.env.stop)
 

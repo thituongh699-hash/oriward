@@ -343,7 +343,7 @@ def _http_json(url: str, allowed_host: str):
         raise SourceError("Provider URL is outside the approved HTTPS host")
     request = urllib.request.Request(
         url,
-        headers={"Accept": "application/json", "User-Agent": "CareerOS/0.1 public-job-reader"},
+        headers={"Accept": "application/json", "User-Agent": "Oriward/0.2.0 public-job-reader"},
         method="GET",
     )
     opener = urllib.request.build_opener(_ExactHostRedirectHandler(allowed_host))

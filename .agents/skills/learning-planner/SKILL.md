@@ -10,7 +10,7 @@ Fit a small plan to weekly capacity, exams, coursework and deadlines. Course or 
 1. Read relevant analyses, review findings and feedback. Separate unknown evidence, preparation risk and missing capability.
 2. Route `practice` to rehearsal, `evidence` to an artifact/credential, and `retarget` to a role/level change. Structural deficits do not become wording tasks.
 3. Draft 2–5 milestones with deliverables, acceptance criteria, effort/date, dependencies and current source URLs where needed. Prefer demonstrable proof to passive course completion.
-4. Save the reviewed plan using [references/plan-contract.md](references/plan-contract.md) and `python -m careeros learning save --file <path>`; inspect `learning list`.
+4. Save the reviewed plan using [references/plan-contract.md](references/plan-contract.md) and `python -m oriward learning save --file <path>`; inspect `learning list`.
 5. Completed work goes through `$career-discovery` as new evidence, then fresh analysis/review. It never automatically enters a resume or improves a grade.
 
 Do not invent progress, guarantee recruiting outcomes or upload private work without authorization for the named service.

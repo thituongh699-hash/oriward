@@ -7,8 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from careeros import discovery
-from careeros.extras import liepin
+from oriward import discovery
+from oriward.extras import liepin
 
 
 class Response(io.BytesIO):
@@ -19,20 +19,20 @@ class LiepinTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        env = patch.dict(os.environ, {"CAREEROS_LIEPIN_CACHE": self.tmp.name, "LIEPIN_USER_TOKEN": "test-secret",
-                                      "CAREEROS_ENABLE_LIEPIN": "1"})
+        env = patch.dict(os.environ, {"ORIWARD_LIEPIN_CACHE": self.tmp.name, "LIEPIN_USER_TOKEN": "test-secret",
+                                      "ORIWARD_ENABLE_LIEPIN": "1"})
         env.start()
         self.addCleanup(env.stop)
 
     def test_optional_extension_is_disabled_unless_opted_in(self):
         # Default posture: the extension module stays unloaded and nothing is sent.
-        with patch.dict(os.environ, {"CAREEROS_ENABLE_LIEPIN": "", "LIEPIN_USER_TOKEN": "test-secret"}), \
+        with patch.dict(os.environ, {"ORIWARD_ENABLE_LIEPIN": "", "LIEPIN_USER_TOKEN": "test-secret"}), \
                 patch.object(liepin, "build_opener") as opener:
             result = discovery.search_local("产品经理", "苏州", "liepin")
         self.assertEqual(result["status"], "EXTENSION_DISABLED")
         self.assertFalse(result["executed"])
-        self.assertEqual(result["module"], "careeros.extras.liepin")
-        self.assertIn("CAREEROS_ENABLE_LIEPIN", result["enable_with"])
+        self.assertEqual(result["module"], "oriward.extras.liepin")
+        self.assertIn("ORIWARD_ENABLE_LIEPIN", result["enable_with"])
         self.assertTrue(result["terms"])
         opener.assert_not_called()
 

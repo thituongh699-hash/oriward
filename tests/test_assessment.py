@@ -1,5 +1,4 @@
 import csv
-import json
 import os
 import tempfile
 import unittest
@@ -7,9 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from careeros import assessment as a
-from careeros import services as s
-from careeros.db import connect, deserialize, serialize
+from oriward import assessment as a
+from oriward import services as s
+from oriward.db import connect, deserialize, serialize
 
 
 class AssessmentTests(unittest.TestCase):
@@ -18,8 +17,8 @@ class AssessmentTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
         self.env = patch.dict(os.environ, {
-            "CAREEROS_DB": str(root / "test.sqlite3"),
-            "CAREEROS_OUTPUT_DIR": str(root / "resumes"),
+            "ORIWARD_DB": str(root / "test.sqlite3"),
+            "ORIWARD_OUTPUT_DIR": str(root / "resumes"),
         })
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -364,7 +363,7 @@ class AssessmentTests(unittest.TestCase):
         _, _, analysis_id, resume, resolved = self.prepared([
             self.requirement("python", "Python is required", "hard_gate", "met", ["EXP1"])
         ])
-        from careeros.feedback import ensure_schema
+        from oriward.feedback import ensure_schema
         with connect() as db:
             ensure_schema(db)
             db.execute(
