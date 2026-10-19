@@ -1,8 +1,7 @@
-# Career hypothesis contract
+# Career hypothesis input
 
-Required fields: `title` (string), `rationale` (string), `supporting_experience_ids` (array of existing ints), `gaps` (array), `validation_status` (normally `hypothesis`).
-Recommended: `transferable_skills`, `entry_route`, `job_search_keywords`, `risks`, `market_sources` each with URL and checked date. Never assign `validated` without external evidence and concrete feasibility.
+Required: `title`, `rationale` (strings), `supporting_experience_ids` (existing integer IDs), `gaps` (array), `validation_status` (normally `hypothesis`).
 
-Example: `data/examples/career.json`.
+Recommended: `transferable_skills`, `entry_route`, `job_search_keywords`, `risks`, `market_sources` with URL and checked date. Use `validated` only with external evidence and concrete feasibility, not confidence alone.
 
-Use `python -m careeros career add --file data/private/career-review.json`; after that `python -m careeros career list`.
+Example: `data/examples/career.json`. Save with `career add --file <private-json>` and inspect `career list`.

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import nullcontext
 
 from ..db import audit, connect, deserialize, now, serialize
 from .errors import ConflictError, NotFoundError
@@ -125,7 +126,7 @@ def _insert(conn, *, subject, predicate, value, assertion_type, epistemic_status
 def propose(*, subject: str, predicate: str, value, assertion_type: str,
             source_type: str, confidence: str = "medium", epistemic_status: str | None = None,
             source_ref: str = "", explanation: str = "", links=None, at: str | None = None,
-            unique: bool | None = None) -> dict:
+            unique: bool | None = None, conn=None) -> dict:
     """Add a claim, or report that an identical live claim already exists.
 
     ``unique`` decides what a *different* value under the same subject.predicate
@@ -141,15 +142,18 @@ def propose(*, subject: str, predicate: str, value, assertion_type: str,
     _require_choice("epistemic_status", status, EPISTEMIC_STATUSES)
     if status == "retracted":
         raise ValueError("Use belief retract to end a claim; do not propose a retracted one")
-    if status == "user_confirmed" and source_type in NON_USER_SOURCES:
-        raise ValueError("Only the user can confirm a claim; propose it as inferred and ask for confirmation")
+    if source_type in NON_USER_SOURCES and status in USER_BACKED:
+        raise ValueError("Non-user sources cannot create user-backed claims; propose the claim as inferred")
+    if source_type in NON_USER_SOURCES and status != "inferred":
+        raise ValueError("Non-user sources may only propose inferred claims")
     if value is None or (isinstance(value, str) and not value.strip()):
         raise ValueError("value is required")
     stamp = at or now()
     key = dedupe_key(subject, predicate, value, assertion_type)
     unique = (assertion_type in DEFAULT_UNIQUE) if unique is None else bool(unique)
 
-    with connect() as conn:
+    with (nullcontext(conn) if conn is not None else connect()) as conn:
+        prepared_links = _prepare_links(conn, links)
         existing = _live(conn, key)
         if existing is not None:
             return {
@@ -181,9 +185,7 @@ def propose(*, subject: str, predicate: str, value, assertion_type: str,
                 explanation=explanation or "用户以新表述替换了此前的推断",
                 at=stamp, key=key, supersedes_id=same_topic["id"],
             )
-            for link in links or []:
-                add_link(new_id, link["ref_type"], str(link["ref_id"]), link.get("relation", "supports"),
-                         link.get("note", ""), conn=conn)
+            _insert_links(conn, new_id, prepared_links)
             return {"id": new_id, "created": True, "conflict": False, "supersedes": same_topic["id"],
                     "auto_superseded_inference": True, "dedupe_key": key,
                     "epistemic_status": status}
@@ -193,19 +195,17 @@ def propose(*, subject: str, predicate: str, value, assertion_type: str,
             source_type=source_type, source_ref=source_ref, explanation=explanation,
             at=stamp, key=key,
         )
-        for link in links or []:
-            add_link(new_id, link["ref_type"], str(link["ref_id"]), link.get("relation", "supports"),
-                     link.get("note", ""), conn=conn)
+        _insert_links(conn, new_id, prepared_links)
         return {"id": new_id, "created": True, "conflict": False, "supersedes": None,
                 "dedupe_key": key, "epistemic_status": status}
 
 
 def revise(assertion_id: int, *, value=None, confidence: str | None = None,
            explanation: str = "", source_type: str = "user_message", source_ref: str = "",
-           reason: str = "", at: str | None = None) -> dict:
+           reason: str = "", links=None, at: str | None = None, conn=None) -> dict:
     """Supersede a claim with a new version, preserving the old row."""
     _require_choice("source_type", source_type, SOURCE_TYPES)
-    with connect() as conn:
+    with (nullcontext(conn) if conn is not None else connect()) as conn:
         old = conn.execute("SELECT * FROM user_assertions WHERE id=?", (assertion_id,)).fetchone()
         if old is None:
             raise NotFoundError(f"assertion #{assertion_id} not found")
@@ -217,16 +217,22 @@ def revise(assertion_id: int, *, value=None, confidence: str | None = None,
         new_confidence = confidence or old["confidence"]
         _require_choice("confidence", new_confidence, CONFIDENCE)
         status = DEFAULT_STATUS[source_type] if source_type in NON_USER_SOURCES else "user_stated"
+        inherited_links = links_of(conn, assertion_id) if links is None else links
+        prepared_links = _prepare_links(conn, inherited_links)
+        new_source_ref = source_ref or old["source_ref"]
+        new_explanation = explanation or old["explanation"] or reason or "用户修订"
+        stamp = at or now()
         key = dedupe_key(old["subject"], old["predicate"], new_value, old["assertion_type"])
         new_id = _insert(
             conn, subject=old["subject"], predicate=old["predicate"], value=new_value,
             assertion_type=old["assertion_type"], epistemic_status=status,
-            confidence=new_confidence, source_type=source_type, source_ref=source_ref,
-            explanation=explanation or reason or "用户修订", at=at or now(), key=key,
+            confidence=new_confidence, source_type=source_type, source_ref=new_source_ref,
+            explanation=new_explanation, at=stamp, key=key,
             supersedes_id=assertion_id,
         )
+        _insert_links(conn, new_id, prepared_links)
         audit(conn, "assertion.revised", "user_assertions", new_id,
-              f"{assertion_id}->{new_id} {reason}"[:200])
+              f"{assertion_id}->{new_id} {reason or new_explanation}"[:200])
         return {"id": new_id, "supersedes": assertion_id, "epistemic_status": status,
                 "value": new_value}
 
@@ -306,6 +312,31 @@ def add_link(assertion_id: int, ref_type: str, ref_id: str, relation: str = "sup
         return cursor.lastrowid
     with connect() as own:
         return add_link(assertion_id, ref_type, ref_id, relation, note, conn=own)
+
+
+def _prepare_links(conn, links) -> list[dict]:
+    """Validate every provenance link before the caller writes any rows."""
+    prepared = []
+    for link in links or []:
+        if not isinstance(link, dict):
+            raise ValueError("each link must be an object")
+        ref_type = _require_choice("ref_type", link.get("ref_type"), REF_TYPES)
+        ref_id = str(link.get("ref_id", ""))
+        if not ref_id:
+            raise ValueError("ref_id is required")
+        relation = _require_choice("relation", link.get("relation", "supports"), RELATIONS)
+        note = link.get("note", "")
+        if not isinstance(note, str):
+            raise ValueError("link note must be a string")
+        _check_ref(conn, ref_type, ref_id)
+        prepared.append({"ref_type": ref_type, "ref_id": ref_id, "relation": relation, "note": note})
+    return prepared
+
+
+def _insert_links(conn, assertion_id: int, links: list[dict]) -> None:
+    for link in links:
+        add_link(assertion_id, link["ref_type"], link["ref_id"], link["relation"],
+                 link["note"], conn=conn)
 
 
 #: Reference types that must point at a real row; `document`/`message` are free-form.
@@ -433,7 +464,8 @@ def _chain(conn, assertion_id: int) -> list[dict]:
     chain = []
     for item_id in seen:
         row = conn.execute(
-            "SELECT id,value_json,epistemic_status,confidence,source_type,recorded_at,valid_from,valid_to "
+            "SELECT id,value_json,epistemic_status,confidence,source_type,source_ref,explanation,"
+            "recorded_at,valid_from,valid_to "
             "FROM user_assertions WHERE id=?", (item_id,)).fetchone()
         if row is None:
             continue
@@ -442,6 +474,11 @@ def _chain(conn, assertion_id: int) -> list[dict]:
             "epistemic_status": row["epistemic_status"], "confidence": row["confidence"],
             "source_type": row["source_type"], "recorded_at": row["recorded_at"],
             "valid_from": row["valid_from"], "valid_to": row["valid_to"],
+            "source_ref": row["source_ref"], "explanation": row["explanation"],
+            "links": links_of(conn, item_id),
+            "audit": [dict(event) for event in conn.execute(
+                "SELECT kind,detail,created_at FROM audit_events WHERE resource='user_assertions' "
+                "AND resource_id=? ORDER BY id", (item_id,)).fetchall()],
         })
     return chain
 

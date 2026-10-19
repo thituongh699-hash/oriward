@@ -3,10 +3,12 @@
 These are budgets, not style rules: they fail only when guidance that is
 supposed to stay short becomes long, duplicated or factually stale again.
 """
+import json
 import re
 import unittest
 from collections import defaultdict
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ROOT / "AGENTS.md"
@@ -18,6 +20,18 @@ EXCLUDED_PARTS = {".git", ".workbuddy", "outputs", "data"}
 def _markdown_files():
     return [path for path in ROOT.rglob("*.md")
             if not any(part in EXCLUDED_PARTS for part in path.parts)]
+
+
+def _heading_anchors(text):
+    """GitHub-style anchors for the plain ATX headings used in this repo."""
+    anchors = set()
+    counts = defaultdict(int)
+    for heading in re.findall(r"(?m)^#{1,6}\s+(.+?)\s*#*\s*$", text):
+        slug = re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
+        number = counts[slug]
+        counts[slug] += 1
+        anchors.add(f"{slug}-{number}" if number else slug)
+    return anchors
 
 
 class DocumentBudgetTests(unittest.TestCase):
@@ -49,13 +63,36 @@ class DocumentBudgetTests(unittest.TestCase):
         broken = []
         for path in _markdown_files():
             text = path.read_text(encoding="utf-8", errors="replace")
-            for match in re.finditer(r"\[[^\]]*\]\(([^)#]+)(?:#[^)]*)?\)", text):
+            for match in re.finditer(r"\[[^\]]*\]\(([^)]+)\)", text):
                 target = match.group(1).strip()
-                if target.startswith(("http", "mailto:", "#")):
+                parsed = urlsplit(target)
+                if parsed.scheme or parsed.netloc:
                     continue
-                if not (path.parent / target).exists():
+                destination = path.parent / unquote(parsed.path) if parsed.path else path
+                if not destination.is_file():
                     broken.append(f"{path.relative_to(ROOT)} -> {target}")
+                elif parsed.fragment and destination.suffix == ".md":
+                    anchors = _heading_anchors(destination.read_text(encoding="utf-8"))
+                    if unquote(parsed.fragment) not in anchors:
+                        broken.append(f"{path.relative_to(ROOT)} -> missing heading {target}")
         self.assertEqual(broken, [])
+
+    def test_json_examples_are_parseable(self):
+        """Copied input examples must use the same strict JSON syntax as CLI files."""
+        for path in _markdown_files():
+            for number, block in enumerate(re.findall(
+                    r"(?ms)^```json\s*\n(.*?)^```", path.read_text(encoding="utf-8")), 1):
+                with self.subTest(path=str(path.relative_to(ROOT)), example=number):
+                    json.loads(block)
+
+    def test_documented_script_paths_exist(self):
+        """Entrypoints documented as repository-root commands must be executable files."""
+        for path in _markdown_files():
+            for script in re.findall(
+                    r"\b(?:python|node)\s+([^\s`]+\.(?:py|mjs))(?=\s|`|$)",
+                    path.read_text(encoding="utf-8")):
+                with self.subTest(document=str(path.relative_to(ROOT)), script=script):
+                    self.assertTrue((ROOT / script).is_file(), script)
 
 
 if __name__ == "__main__":

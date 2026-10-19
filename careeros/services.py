@@ -31,16 +31,82 @@ def json_file(filepath):
 
 def save_profile(data):
     validate_dict(data, ["display_name"])
+    from .core import assertions
+    from .core.profile import IDENTITY_FIELDS
+
+    list_fields = {
+        "values": ("user", "value", "value"),
+        "preferences": ("user", "preference", "preference"),
+        "hard_constraints": ("work_conditions", "hard_constraint", "constraint"),
+        "constraints": ("work_conditions", "hard_constraint", "constraint"),
+        "skills": ("user", "has_skill", "skill_hypothesis"),
+    }
+    # The compatibility cache and all assertions change in one transaction.
     with connect() as db:
-        db.execute("INSERT INTO profile(id,data,updated_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at", (serialize(data), now()))
+        row = db.execute("SELECT data FROM profile WHERE id=1").fetchone()
+        previous = deserialize(row["data"]) if row else {}
+        merged = {**previous, **data}
+        for key, (subject, predicate, assertion_type) in list_fields.items():
+            old_items = previous.get(key) or []
+            new_items = data.get(key, old_items)
+            if not isinstance(new_items, list):
+                raise ValidationError(f"{key} must be an array")
+            old_json = {serialize(v) for v in old_items}
+            if not old_json.issubset({serialize(v) for v in new_items}):
+                raise ValidationError(f"{key} is append-only here; use belief retract/revise to change an item")
+            for item in new_items:
+                value = item if isinstance(item, dict) else {"text": str(item).strip()}
+                if not value or value == {"text": ""}:
+                    raise ValidationError(f"{key} contains an empty claim")
+                claim_key = assertions.dedupe_key(subject, predicate, value, assertion_type)
+                matching = db.execute("SELECT * FROM user_assertions WHERE dedupe_key=? ORDER BY id DESC LIMIT 1",
+                                      (claim_key,)).fetchone()
+                if matching:
+                    # Repeated cached uploads never resurrect old judgments.
+                    if matching["valid_to"] or matching["epistemic_status"] == "retracted":
+                        continue
+                    continue
+                assertions.propose(subject=subject, predicate=predicate, value=value,
+                                   assertion_type=assertion_type, source_type="user_message", unique=False,
+                                   source_ref="profile:1", explanation="用户通过 profile 提交的陈述", conn=db)
+            merged[key] = new_items
+
+        for field in IDENTITY_FIELDS:
+            if field not in data:
+                continue
+            raw = data[field]
+            if raw in (None, "", [], {}):
+                raise ValidationError(f"{field} cannot be empty; use belief retract to remove it")
+            value = raw if isinstance(raw, (dict, list)) else {"text": str(raw).strip()}
+            records = db.execute(
+                "SELECT * FROM user_assertions WHERE subject='user' AND predicate=? ORDER BY id DESC",
+                (field,)).fetchall()
+            current = next((r for r in records if not r["valid_to"] and r["epistemic_status"] != "retracted"), None)
+            if current is not None:
+                if deserialize(current["value_json"]) == value:
+                    continue
+                if field in previous and raw == previous[field]:
+                    raise ValidationError(f"{field} conflicts with a newer Core correction; use belief revise explicitly")
+                assertions.revise(current["id"], value=value, source_type="user_message",
+                                  explanation="用户通过 profile 修订身份字段", reason="profile identity update", conn=db)
+            else:
+                claim_key = assertions.dedupe_key("user", field, value, "fact")
+                if any(r["dedupe_key"] == claim_key for r in records):
+                    raise ValidationError(f"{field} matches a retracted historical value; use belief propose explicitly")
+                assertions.propose(subject="user", predicate=field, value=value, assertion_type="fact",
+                                   source_type="user_message", source_ref="profile:1",
+                                   explanation="用户通过 profile 提交的身份字段", conn=db)
+        db.execute("INSERT INTO profile(id,data,updated_at) VALUES (1,?,?) "
+                   "ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+                   (serialize(merged), now()))
         audit(db, "profile.updated", "profile", 1)
     return 1
 
 
 def get_profile():
     with connect() as db:
-        row = db.execute("SELECT data FROM profile WHERE id=1").fetchone()
-        return deserialize(row["data"]) if row else None
+        from .core.profile import read_profile
+        return read_profile(db)
 
 
 def add_object(table, data, required):
@@ -161,8 +227,8 @@ def build_resume(job_id, experience_ids, headline=""):
         raise ValidationError("Select at least one approved experience")
     experience_ids = list(dict.fromkeys(int(x) for x in experience_ids))
     profile = get_profile()
-    if not profile:
-        raise ValidationError("Save your profile first")
+    if not profile or not profile.get("display_name"):
+        raise ValidationError("Save a current user-backed display_name before building a resume")
     with connect() as db:
         job = one(db, "jobs", job_id)
         job_data = deserialize(job["data"])

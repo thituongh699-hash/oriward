@@ -1,6 +1,6 @@
 # Data model and contracts
 
-SQLite 由 `python -m careeros init` 初始化。结构化记录是事实源；所有私人 JSON/CSV 放在 `data/private/`，简历文件放在 `outputs/resumes/`。
+SQLite 由 `python -m careeros init` 初始化；默认数据库为 `data/private/careeros.sqlite3`，可用 `CAREEROS_DB` 指定。本文维护实体、不变量和完整输入示例；执行顺序见 [WORKFLOWS](WORKFLOWS.md)，技能 references 维护各任务的操作要求。所有 ID、引文和哈希必须换成当前记录的真实值；示例不是可直接导入的用户数据。私人 JSON/CSV 放在 `data/private/`，简历文件放在 `outputs/resumes/`。
 
 ## 核心实体
 
@@ -33,7 +33,9 @@ Greenhouse/Lever adapter 还会保留 provider 字段和原始 HTML，同时把 
 
 `jobs card` 是单岗唯一记录：`job`（标题/公司/城市/发布时间/可用性/freshness）、`jd`（全文与字数）、`vacancy_group`（归并组与成员数）、`channels`（各平台来源）、`applications`（渠道/状态/`applied_at`/时间线）、`feedback`、`repeat_application_risk`、`gaps`、`next_commands`。
 
-跨平台归并键为 `sha256(normalize(company)+normalize(title)+normalize(location))[:24]`，只做候选提示；不合并原始 `jobs` 行，不改写任何 `source_key` 或快照，也不阻止同组内其他岗位的投递。详见 [APPLICATION_TRACKING.md](APPLICATION_TRACKING.md)。
+跨平台归并键为 `sha256("\u001f".join([normalize(company), normalize(title), normalize(location)]).encode("utf-8")).hexdigest()[:24]`，三个归一化字段以 U+001F 分隔。公司去常见公司后缀及括号噪声；岗位去括号噪声和结尾招聘词；城市取首个城市词并去行政后缀。跨城市不归并，同组仍可能是不同职级、团队或批次，只作候选提示。归并按需重建，`jobs group --rebuild` 可强制重算；原始 `jobs`、`source_key` 和快照均保留。
+
+`application prepare` 返回 `repeat_application_hints` 和 `already_applied_in_group`；卡片的 `repeat_application_risk.decision=user_decides`。不阻止同组再次准备、不合并申请、不把同组全标为已投递，岗位关闭也不删除历史。`jobs card.gaps` / `pipeline.data_gaps` 报告缺失发布时间、JD、申请渠道或投递 URL，不猜测补齐。聚合渠道的 availability 保持 unknown，不能用聚合抓取时间证明雇主仍开放。
 
 `applications` 的 `channel` 只接受渠道 ID 或 `email|referral|other`；`apply_url` 记录实际提交页面；`applied_at` 仅在 `SUBMITTED` 且本人确认后写入。`application_events` 由状态流转自动追加，也可用 `application event` 写入未来日程。
 
@@ -115,7 +117,7 @@ Greenhouse/Lever adapter 还会保留 provider 字段和原始 HTML，同时把 
 }
 ```
 
-`verdict` 为 `pass|risk|fail|unknown`，每个 requirement ID 至少被某一阶段覆盖；finding severity 为 `presentation|preparation|structural|blocker`；action type 为 `wording|practice|evidence|retarget`。同一评审中的红方 finding 是未解决观察，不能同时写 `resolved=true`；新证据或改版后创建新的独立评审，并在新评审中省略已失效 finding。
+`verdict` 为 `pass|risk|fail|unknown`，每个 requirement ID 至少被某一阶段覆盖；finding severity 为 `presentation|preparation|structural|blocker`；action type 为 `wording|practice|evidence|retarget`。同一评审中的 finding 不能写 `resolved=true`，结构性问题不能只分配 wording。具体评审步骤见 [analysis-contract](../.agents/skills/job-analysis/references/analysis-contract.md)。
 
 CLI 拒绝输入 `grade/status/reasons`，并校验简历文件哈希、analysis/job 哈希、job/resume 关系及“met 证据已选入该简历”。
 
@@ -172,7 +174,7 @@ CLI 拒绝输入 `grade/status/reasons`，并校验简历文件哈希、analysis
 }
 ```
 
-每个 `source_texts` 必须逐字存在于同一经历的 action、outcome 或 evidence claim。重写后的 `text` 只要不是原事实逐字复用，就标为 pending，必须让本人核对实际含义后运行 `resume confirm --id ID --human-confirmed`。确认不是形式步骤，Agent 不能代替用户作答。
+每个 `source_texts` 必须逐字存在于同一经历的 action、outcome 或 evidence claim。重写后的 `text` 只要不是原事实逐字复用，就标为 pending，必须由用户核实完整表述后确认；操作见 [resume-review](../.agents/skills/resume-builder/references/resume-review.md)。
 
 ## 申请状态
 
@@ -188,29 +190,77 @@ READY_FOR_USER -> SUBMITTED -> INTERVIEW -> OFFER -> ACCEPTED
 
 `application_events` 的每次状态流转额外记录 `from_status`、`to_status`、`human_confirmed` 与 `evidence_ref`，使 `applications.status` 成为可由事件重建的投影。
 
-## Career Twin Core（schema v3）
+## Career Twin Core
 
-结构变更由 `careeros/migrations.py` 的 `MIGRATIONS` 序列管理，记录于 `schema_migrations`；首次升级非空库前写出 `careeros.sqlite3.bak-v<旧版本>-<时间戳>`。完整设计见 [CAREER_TWIN_CORE_ARCHITECTURE.md](CAREER_TWIN_CORE_ARCHITECTURE.md)。
+当前 schema v4。结构变更由 `careeros/migrations.py` 的 `MIGRATIONS` 序列管理，记录于 `schema_migrations`；首次升级非空库前写出 `careeros.sqlite3.bak-v<旧版本>-<时间戳>`。
 
 | 表 | 关键字段 | 不变量 |
 | --- | --- | --- |
 | `user_assertions` | `subject/predicate/value_json`、`assertion_type`、`epistemic_status`、`confidence`、`source_type/source_ref`、`supersedes_id/superseded_by_id`、`valid_from/valid_to`、`dedupe_key` | 不原地修改；改动必须新版本并闭合旧行；`inferred` 不得自称 `user_confirmed` |
 | `assertion_links` | `assertion_id`、`ref_type`、`ref_id`、`relation` | `relation ∈ supports/contradicts/derived_from/about`；Why 维度只认这些边 |
 | `user_feedback` | `target_type/target_id`、`feedback_type`、`reason`、`scope`、`promoted_assertion_id` | 默认 `scope=this_case`；`promote --human-confirmed` 才升格为长期约束 |
-| `career_goals` | `title`、`priority(1..5)`、`status`、`target_date`、`success_criteria_json`、`owner(user|agent)` | `owner=agent` 的目标不驱动优先级排序 |
+| `career_goals` | `title`、`direction_id`、`priority(1..5)`、`status`、`target_date`、`success_criteria_json`、`time_budget_hours`、`owner(user|agent)`、`rationale` | 仅 user 所有的 active/exploring 目标驱动优先级；每周预算为 null 或 0..168，0 表示无工时 |
 | `job_pipeline` | `job_id`(PK)、`discovery_status`、`goal_id`、`decision_reason`、`priority`、`last_checked_at`、`next_review_at` | 与 `applications` 分离：无简历也能进短名单；状态转换受白名单限制；`goal_id` 让岗位归到目标 |
 | `next_actions` | `title`、`source_type/source_id`、`action_type`、`status`、`due_at`、`priority`、`effort_hours`、`depends_on_json`、`suggestion_reason`、`requires_approval` | 必须有 `suggestion_reason`；完成需证据或用户确认；`effort_hours` 参与投入成本排序 |
 | `reflection_runs` | `period_start/period_end`、`input_event_ids_json`、`proposed_updates_json`、`status` | 只生成提案，不自动改写画像 |
 
 断言类型：`fact / preference / value / constraint / skill_hypothesis / career_hypothesis`。认识状态：`user_stated / user_confirmed / document_verified / inferred / disputed / retracted`。`constraint` 是本项目的落地扩展，用于硬约束过滤。
 
-写入约定：
+身份读取使用 Core 投影：兼容 profile 缓存加有效断言，断言中的纠正优先。`profile save` 与断言同事务提交，长期列表只追加；纠正/撤回使用 belief，旧缓存或 `twin sync-legacy` 不得覆盖新纠正、复活撤回。同步对旧 profile、方向、经历能力推断和岗位作幂等单向投影，保留历史映射，不改原文档。
 
-- 一切"关于用户的话"走 `python -m careeros belief propose --file <json>`；改值用 `belief revise`，否认用 `dispute`，作废用 `retract`。
-- 情境化反应走 `signal add`；推广为长期约束需用户明确同意：`signal promote --human-confirmed`。
-- 岗位决定走 `pipeline update`（可带 `--goal-id`）；行动走 `action propose/complete`。
+`belief revise` 默认继承证据链接；显式 links 替换，`links=[]` 清除，每版保留自己的来源与解释。来源决定初始认识状态：user_message/interview/legacy_profile/feedback → user_stated；document → document_verified；experience → user_confirmed；model_inference/reflection/external_source → inferred。后三类只能提出 inferred，不能覆盖成用户自述或已确认事实。来源必须真实，状态默认值不等于可伪造证据或代用户确认。
 
-文档导出不产生数据：`document-export` 读取已生成的简历或结构化输入，在 `outputs/` 写 DOCX/PDF 与 `manifest.json`（导出时间、来源 ID、字体和文件大小），不新增或修改任何表。
-- `twin sync-legacy` 把 v0.1 的 `profile` 列表、`career_directions`、`experiences.inferred_skills` 与 `jobs` 单向投影进 Core，旧表不改动，可重复执行。
+`belief propose` 的能力推断输入示例（经历 3 须真实存在）：
+
+```json
+{
+  "subject": "skill:sql",
+  "predicate": "has_skill",
+  "value": {"skill": "SQL"},
+  "assertion_type": "skill_hypothesis",
+  "source_type": "model_inference",
+  "confidence": "medium",
+  "explanation": "经历 3 中的查询工作提示待验证的 SQL 能力",
+  "links": [{"ref_type": "experience", "ref_id": 3, "relation": "derived_from"}]
+}
+```
+
+`action propose` 的输入示例（目标 1 须真实存在）：
+
+```json
+{
+  "title": "写一份需求文档样例",
+  "source_type": "goal",
+  "source_id": 1,
+  "action_type": "learn",
+  "due_at": "2026-10-22T20:00:00+08:00",
+  "priority": 2,
+  "effort_hours": 2,
+  "suggestion_reason": "方向缺口：缺少需求文档作品"
+}
+```
+
+action 还可有 `depends_on`（真实 action ID 数组）和 `requires_approval`。source_type 为 goal/job/application/learning/interview/reflection/core；action_type 为 apply/research/prepare/follow_up/practice/learn/decide/confirm/log_result/other；priority 为 1..5，effort_hours 为总投入 0..200。关联通过岗位、申请、学习计划或面试向目标解析，不能编造 ID。行动状态为 todo/doing/blocked/done/cancelled，完成需证据或用户确认。
+
+其他 Core 文件输入：
+
+| 命令 | 输入字段与边界 |
+| --- | --- |
+| `belief revise` | id、value；可选 confidence/explanation/source_type/source_ref/reason/links |
+| `goal add` | title；可选 direction_id/priority/status/target_date/success_criteria/time_budget_hours/owner/rationale；status 为 exploring/active/paused/achieved/discarded，success_criteria 为数组 |
+| `signal add` | target_type、target_id、feedback_type；可选 reason/source/scope。target_type 为 career_direction/job/goal/action/plan/brief/resume/system；feedback_type 为 interested/not_interested/applied/declined/corrected/useful/not_useful/accepted/rejected/other；scope 默认 this_case，general 不代替人工批准推广 |
+
+CLI 拒绝未知字段。信号指向存储实体时须有真实记录；升格只接受明确的长期规则，不能只保存“不感兴趣”等泛标签。招聘方反馈与用户偏好信号不可互换。
+
+文档导出不产生数据：只在 `outputs/` 写 DOCX/PDF 与 manifest，不新增或修改任何表。
 
 旧表与 Core 的分工：`experiences`、`jobs`、`job_analyses`、`resumes`、`learning_plans`、`interviews` 保持 JSON 文档形态（整段叙述有意义）；只有需要被单独引用、质疑和追溯时间的判断才拆成原子。`recruiting_feedback`（招聘方反馈）与 `user_feedback`（用户偏好信号）语义不同，不合并。
+
+## 目标历史与决策
+
+- `goal_revisions` 保存 goal_id/revision、完整 snapshot、reason 和创建时间；当前目标保留在 career_goals。升级时只补当前基线，不编造更早历史。
+- `decision_records` 保存 action_id/previous_id、reason、alternatives、六类 factors、constraint_checks、冻结 context 和时间；历史记录不可 UPDATE。
+- `decision_events` 追加 accepted/rejected/result/completed；接受/否决须当下用户确认，实际结果须确认或证据。
+- 决策 context 冻结当时断言及其链接、关联目标、岗位及来源快照、行动定义和引用的经历证据。当前状态变化会使建议要求重评，旧记录保留。
+- assessment 为 eligible、unassessed（日程任务，未证实适配）、validation（澄清未知）、review 或 excluded；后两类不会进入可执行推荐列表。
+- 具体 JSON、字段准入和命令见 [DECISIONS.md](DECISIONS.md)。

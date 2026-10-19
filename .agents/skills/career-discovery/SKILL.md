@@ -1,24 +1,20 @@
 ---
 name: career-discovery
-description: Interview a person about overlooked education, work, projects, hobbies, setbacks and informal responsibilities, then save evidence-backed experience facts separately from inferred skills. Use for personal evidence discovery, not vacancy search or resume embellishment.
+description: Discover evidence in education, projects, work and informal responsibilities, then save reported facts separately from inferred skills. Use for personal evidence discovery, not vacancy search or resume embellishment.
 ---
 
 # Career discovery
 
-Build reusable evidence without turning plausible interpretation into biography.
+Start with one event and a few questions. Coursework, campus roles, volunteering, caring responsibilities and setbacks can supply evidence without formal employment. Accept corrections; never invent titles, ownership, dates, metrics or skill levels, or turn a student project into professional seniority.
 
-Primarily support students and recent graduates. Coursework, group assignments, student organizations, competitions, volunteering, part-time work, caring responsibilities and setbacks can supply real evidence. Start with one event and a few questions; no formal internship is required. Explain what remains unknown, accept corrections, and build understanding across sessions instead of assigning a fixed personality or ability label. Never turn a course project into employment or invent a job title, ownership, result or metric.
-
-1. Run `python -m careeros profile show` and `python -m careeros experience list`; read only records needed for the current question. Do not silently inspect accounts or unrelated personal files.
-2. Explore 2–3 neglected angles at a time. Ask about context, personally attributable actions, constraints, outcomes, artifacts and uncertainty; separate team output from individual ownership.
-3. Write reported facts, evidence and skill hypotheses separately. Interest is not competence; a user statement is confirmation, not independent verification.
-4. Draft the JSON in [references/experience-contract.md](references/experience-contract.md). Show every factual phrase that may enter a resume and obtain direct human confirmation before setting `approved_for_resume=true`.
-5. Save only reviewed content with `python -m careeros experience add --file data/private/<name>.json`, then verify with `python -m careeros experience list`.
-6. Report facts, inferred skills, unknowns, saved IDs and the next high-value questions. Route career options to `$career-mapping`; route a newly evidenced gap closure back into later resume analysis.
-
-Never invent dates, employers, titles, metrics, certificates, skill levels or causal impact. Do not upload personal evidence to a third-party service without explicit authorization for that service and purpose.
+1. Inspect relevant profile and `experience list` records only; use `$career-mapping` when the task is choosing directions.
+2. Explore context, personally attributable actions, constraints, outcomes and artifacts. Separate team output, individual ownership, interest and competence.
+3. Draft reported facts, evidence and inferred skills using [references/experience-contract.md](references/experience-contract.md). A user statement is not independent verification. Show every factual phrase intended for a resume and obtain direct confirmation before `approved_for_resume=true`.
+4. Save reviewed content with `python -m careeros experience add --file <private-json>` and inspect the saved record. Keep personal evidence local unless the user authorizes a named external service and purpose.
+5. Report saved IDs, facts, hypotheses, unknowns and the next useful question. Newly evidenced gap closure still requires fresh job analysis and resume review.
 
 ## Career Twin Core contract
-- Write new claims with `belief propose` (`source_type: model_inference`, stays `inferred`).
-- Every skill inference needs a `derived_from` link to the experience; without it `context why` cannot trace it.
-- After the user personally agrees, `belief confirm --id <id>`. Shared rules are in `AGENTS.md`.
+
+- Propose new capability inferences with `belief propose`, `source_type:model_inference`; they stay `inferred` and need `derived_from` links to their experiences. Other claims retain their actual source, not a blanket model-inference label.
+- Keep hedged self-reports at low confidence with original words and circumstances until clarified. Only the user's direct instruction permits `belief confirm`.
+- Follow `AGENTS.md` for shared state rules. Read the [decision contract](../../../docs/DECISIONS.md) when recommending or reassessing a course of action.

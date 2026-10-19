@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from ..db import audit, connect, deserialize, now, serialize
 from .errors import NotFoundError
+from . import relations
 
 STATUSES = ("proposed", "approved", "partially_approved", "rejected")
 
@@ -54,9 +55,7 @@ def weekly(days: int = 7) -> dict:
             "JOIN jobs j ON j.id=p.job_id WHERE p.discovery_status='shortlisted' "
             "AND (p.last_checked_at='' OR p.last_checked_at < ?) LIMIT 3", (cutoff,)).fetchall()
         for row in stale_jobs:
-            has_action = conn.execute(
-                "SELECT 1 FROM next_actions WHERE source_type='job' AND source_id=? "
-                "AND status IN ('todo','doing','blocked')", (row["job_id"],)).fetchone()
+            has_action = relations.actions_for_job(conn, row["job_id"])
             if has_action:
                 continue
             proposals.append({
@@ -69,10 +68,15 @@ def weekly(days: int = 7) -> dict:
                 "confidence": "low",
             })
 
-        idle_goals = conn.execute(
-            "SELECT g.id,g.title FROM career_goals g WHERE g.status IN ('active','exploring') "
-            "AND NOT EXISTS (SELECT 1 FROM next_actions a WHERE a.source_type='goal' AND a.source_id=g.id "
-            "AND a.status IN ('todo','doing','blocked')) LIMIT 3").fetchall()
+        covered_goals = set()
+        for action in conn.execute("SELECT source_type,source_id FROM next_actions WHERE status IN ('todo','doing','blocked')"):
+            try:
+                covered_goals.update(relations.source_context(conn, action["source_type"], action["source_id"])["goal_ids"])
+            except ValueError:
+                continue
+        idle_goals = [row for row in conn.execute(
+            "SELECT id,title FROM career_goals WHERE status IN ('active','exploring') ORDER BY id")
+                      if row["id"] not in covered_goals][:3]
         for row in idle_goals:
             proposals.append({
                 "kind": "goal_without_action",

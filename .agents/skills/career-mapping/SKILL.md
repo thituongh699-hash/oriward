@@ -1,23 +1,20 @@
 ---
 name: career-mapping
-description: Map approved experience evidence to adjacent, cross-industry and hybrid career paths, with sourced market checks and explicit blockers. Use for career pivots and overlooked role families, not vacancy claims or resume writing.
+description: Map experience evidence to adjacent, cross-industry and hybrid career paths, with sourced market checks and explicit blockers. Use for career exploration or pivots, not vacancy claims or resume writing.
 ---
 
 # Career mapping
 
-For students and recent graduates, distinguish exploratory directions, internships and graduate-entry roles. Check graduation-year and availability requirements against actual sources rather than assuming eligibility. Compare a small, revisable set of hypotheses and feasible validation tasks; the user's major or one rejection does not determine their career ceiling.
+Compare a small, revisable set of directions. Distinguish exploration, internship and graduate-entry roles; verify graduation-year and availability requirements rather than assuming eligibility. A major or one rejection does not set a career ceiling.
 
-1. Read `python -m careeros experience list` and relevant profile constraints. If the evidence base is thin, use `$career-discovery` first.
-2. Build `experience ID -> demonstrated action -> transferable ability -> occupation family`; keep interests and inferences visibly separate.
-3. Compare adjacent occupations, cross-industry analogues and hybrid roles. For each direction show supporting IDs, disconfirming evidence, hard gates, feasible entry proof, risks and search keywords.
-4. Use current public vacancies or official occupation sources when authorized. Actually open the sources, preserve exact URLs and checked dates, and separate sourced facts from inference. Without market evidence, label the direction `hypothesis`.
-5. Save reviewed direction JSON according to [references/career-contract.md](references/career-contract.md) with `python -m careeros career add --file <path>`, then inspect `python -m careeros career list`.
-6. Hand validated search terms to `$job-search`; never fabricate an open job, salary, demand level or offer probability.
-
-Keep personal evidence local unless the user explicitly authorizes a named external service and purpose.
+1. Read relevant experiences and constraints. If evidence is thin, use `$career-discovery` first.
+2. Map `experience ID -> demonstrated action -> transferable ability -> occupation family`. Label interests and inferences separately.
+3. For adjacent, cross-industry and hybrid options, show supporting IDs, counterevidence, hard gates, feasible entry proof, risks and search terms.
+4. Read current public vacancies or official occupation sources as needed; retain exact URLs and checked dates. Without market evidence, keep the direction a hypothesis. Never invent openings, demand, salaries or offer probabilities.
+5. Save reviewed directions using [references/career-contract.md](references/career-contract.md) and `python -m careeros career add --file <private-json>`; inspect `career list`. Hand search terms to `$job-search`.
 
 ## Career Twin Core contract
-- Read `context brief`, especially `who_am_i.constraints`; a direction that violates a confirmed hard constraint must say so and cite the assertion ID.
-- Each direction is one `career_hypothesis` (`subject: career:<slug>`, `predicate: direction_hypothesis`, `source_type: model_inference`), with `supports` evidence in `links` and disconfirming evidence as `contradicts`.
-- Record a user-chosen pursuit with `goal add` (`owner: user`); model-suggested exploration uses `owner: agent` and must not drive priority ordering.
-- Report each direction with support, contradiction, gap and a concrete validation action. Shared rules are in `AGENTS.md`.
+
+- Each direction becomes a `career_hypothesis` (`subject:career:<slug>`, `predicate:direction_hypothesis`, `source_type:model_inference`), with `supports` and `contradicts` links.
+- Cite the assertion ID for any confirmed hard-constraint conflict. A user-chosen pursuit uses `goal add` with `owner:user`; agent exploration uses `owner:agent` and must not drive priority ordering.
+- Record recommended direction/validation choices and later reassessment through the [decision contract](../../../docs/DECISIONS.md). Shared privacy and confirmation rules remain in `AGENTS.md`.

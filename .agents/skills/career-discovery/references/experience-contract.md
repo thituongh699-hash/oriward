@@ -1,21 +1,15 @@
-# Experience evidence contract
+# Experience evidence input
 
-Record accepts these fields:
-- `event` (required string): neutral short title.
-- `context` (string): project setting, dates only if known.
-- `actions` (required array of strings): actions directly attributable to user.
-- `outcomes` (required array of strings): factual outputs or verified effects; may be empty.
-- `evidence` (required array): `{ "claim": string, "source": string, "status": "user_confirmed|document_verified|unverified" }`.
-- `inferred_skills` (array): `{ "name": string, "reason": string, "confidence": "low|medium|high" }`.
-- `approved_for_resume` (required boolean): user approved the factual wording, not model inferred approval.
-- `privacy` (e.g. `private`).
+Load when preparing an experience record. Required fields:
 
-Example: `data/examples/experience.json`.
+- `event`: neutral short title;
+- `actions`: strings directly attributable to the user;
+- `outcomes`: factual outputs/effects, may be empty;
+- `evidence`: objects with `claim`, `source`, `status:user_confirmed|document_verified|unverified`;
+- `approved_for_resume`: boolean based on direct user approval of factual wording.
 
-## Separate inference from facts
-A user who says “used Python to clean data” supplies evidence that they used Python; it does not support “expert in Python”, “engineered a production pipeline”, “drove a 30% increase”, or independently verified productivity. All uncertain qualifications belong in `inferred_skills` or unanswered questions, never `actions`/`outcomes`.
+Optional: `context` (setting, dates only if known), `privacy` (e.g. private), `inferred_skills` objects with `name`, `reason`, `confidence:low|medium|high`. Example: `data/examples/experience.json`.
 
-## Persistence
-`python -m careeros experience add --file data/private/experience-review.json`
-`python -m careeros experience list`
-Store reviewed personal JSON under `data/private` to avoid version-control disclosure.
+“Used Python to clean data” supports use, not expertise, production ownership, a fabricated metric or independently verified productivity. Put uncertain capabilities in `inferred_skills` or open questions, never factual actions/outcomes. User confirmation is not independent document verification.
+
+Save reviewed JSON under `data/private/`, then use `experience add --file <path>` and verify with `experience list`. Keep the approval and inference boundaries from the entrypoint.

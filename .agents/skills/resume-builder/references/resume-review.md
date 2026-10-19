@@ -1,23 +1,11 @@
-# Resume revision and review checklist
+# Resume provenance and revisions
 
-## Before the base review
-
-1. Each claim traces to an approved experience or approved profile fact.
-2. Metrics, dates, titles, tools and ownership occur in the source; no inferred expertise.
-3. Selected experience IDs are relevant to this exact job and cover all analysis items marked met.
-4. The file exists and its bytes match the stored SHA-256.
-5. The draft is clearly local and unsubmitted.
+Before building/reviewing, verify every claim against approved experience/profile facts: dates, metrics, titles, tools and personal ownership must exist in the source. Selected experiences must cover analysis items marked `met`; the saved file's bytes must match its stored SHA-256. Label the draft local and unsubmitted.
 
 ## Revision input
 
-`resume revise --file JSON` requires `base_resume_id`, `reason`, nonempty `sections`, and optional `review_id`/`feedback_ids`. Each section names one `experience_id`; each bullet has one-line `text` plus nonempty exact `source_texts` from that same experience's actions, outcomes or evidence claims.
+`resume revise --file <json>` requires `base_resume_id`, `reason`, nonempty `sections`; optional `review_id`/`feedback_ids` link the cause. Each section names one `experience_id`. Each bullet contains one-line `text` and nonempty exact `source_texts` from that same experience's actions, outcomes or evidence claims.
 
-The revision creates a new resume and preserves the base. Reordered exact facts may be immediately approved; semantic rewrites are `pending`. Present pending text to the user and require direct factual confirmation before `resume confirm --id ID --human-confirmed`.
+A revision creates a new resume and preserves the base. Reordered exact facts may be approved immediately; semantic rewrites are `pending`. Show pending claims completely, then require direct user factual confirmation before `resume confirm --id <id> --human-confirmed`.
 
-## After revision
-
-1. Inspect `resume history --id ID` for base, review, feedback and claim mapping.
-2. Obtain a new `review packet` for the revised ID; never reuse the old result.
-3. Have the red review independently test all seven stages and the blue response map every finding to wording/practice/evidence/retarget.
-4. Structural gaps survive wording changes. Stop after two rounds without new evidence.
-5. Do not upload, publish or submit the version without explicit authorization for the destination.
+Inspect `resume history --id <id>` for base, review, feedback and claim mappings. Obtain a fresh review packet for the new ID and follow [the analysis/review contract](../../job-analysis/references/analysis-contract.md); never reuse the base grade. External upload, publication or submission requires authorization for the named destination.

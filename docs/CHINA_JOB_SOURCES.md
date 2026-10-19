@@ -1,45 +1,27 @@
-# 中国职位渠道接入
+# 中国职位渠道能力
 
-核验日期：2026-10-18。检索/抓取成功与职位仍开放分开记录。
+本表描述已交付代码和操作边界，不代表当前网络、账号或站点已实时验证。每次使用先运行 `jobs channels` / `jobs route`，以实际返回区分计划、执行失败、鉴权和结果；历史核验见 [CHANGELOG](../CHANGELOG.md)。
 
-| 渠道 | 本次实际状态 | 项目支持 | 可记为投递渠道 |
+| 渠道 | 当前入口 | 限制 | 可记投递渠道 |
 | --- | --- | --- | --- |
-| 企业官网直招 official | 本地单页只读解析已实现（JSON-LD `JobPosting` 优先，HTML 兜底） | `official plan` / `official fetch`，解析 JD、发布时间、投递入口 | 是 |
-| 职页 zhiye.page | 本地公开搜索和详情获取成功 | 本地适配器、缓存、线索入库、完整 JD 转入岗位库 | 否 |
-| BOSS 直聘 | 公开搜索索引能发现列表；robots 限制查询参数抓取 | 索引线索/授权完整 JD 导入；浏览器渠道，没有直接搜索或登录态抓取 | 是 |
-| 智联招聘 | 公开索引能发现详情；本地请求遇到安全验证 | 索引线索/授权完整 JD 导入；浏览器渠道，没有绕过验证 | 是 |
-| 猎聘 | 官方搜索 API 已实测（需 Token） | **可选扩展，默认关闭**（`CAREEROS_ENABLE_LIEPIN=1` 开启）；只返回搜索卡片，完整 JD 需人工读取后导入 | 是 |
-| 前程无忧 | 未实测本地直接查询 | 渠道目录、公开检索计划、授权导入 | 是 |
-| 职友集 | 官方开放 XML 是供其收录的输入格式 | 发现入口；不是已接入的职位读取 API | 否（仅发现） |
-| Careerjet 中国 | 官方提供发布商职位搜索 API | 待 API key 配置和授权验证；尚无已交付适配器 | 否 |
-| 国家大学生就业服务平台、中国公共招聘网 | 官方就业信息入口 | 搜索计划/授权导入；未声称存在可用公共 API | 是 |
+| 企业官网 official | `official plan/fetch`，只读单岗，优先 JSON-LD JobPosting、HTML 兜底 | 需具体岗位 URL 和可读 JD，保留发布时间与投递入口；不抓整站 | 是 |
+| 职页 zhiye.page | 本地公开搜索、详情、缓存、线索提升为 jobs | 聚合发现，只取首个结果页；不保证全城市/行业覆盖，availability=unknown | 否 |
+| BOSS 直聘、智联 | 已连接且获授权的浏览器 UI；公开索引线索或授权导入 | 宿主须有浏览器能力；登录/验证由用户处理，受限预览不能当完整 JD；无登录态抓取器 | 是 |
+| 猎聘 | 默认关闭的搜索扩展 | 明确启用并配置 Token 后才请求；返回搜索卡片而非全文 JD，见 [猎聘接入](LIEPIN_INTEGRATION.md) | 是 |
+| 前程无忧、国家大学生就业服务平台、中国公共招聘网 | 渠道目录、搜索计划、授权导入 | 没有交付本地直接搜索接口；计划不算搜索结果 | 是 |
+| 职友集 | 公司/岗位发现与授权导入 | 开放收录 XML 不是职位读取 API | 否 |
+| Careerjet 中国 | 目录与 API 配置提示 | 项目未交付适配器，不能把 API key 提示说成已接通 | 否 |
 
-职页适合企业官网岗位聚合发现，不保证覆盖所有城市、行业或 BOSS/智联的信息。搜索当前只取首个结果页，返回 `scope=first_public_result_page`；`has_more` 仅表示该页解析结果超过请求数量，不代表网站总分页数量。需覆盖更多岗位时应主动改变检索条件，不能将本地结果当作全网全集。
+完整导入字段与浏览器证据分别见 [job-import-contract](../.agents/skills/job-search/references/job-import-contract.md)、[browser-search](../.agents/skills/job-search/references/browser-search.md)。公开 Greenhouse/Lever board 同步另见 [WORKFLOWS](WORKFLOWS.md)。
 
-官方渠道是唯一能同时证明“岗位由雇主发布”和“投递入口属于雇主”的来源。它只读一个单岗页面：要求 HTTPS、公共域名、robots 允许、2 MB 与 15 秒上限、同主机重定向，拒绝 IP 字面量、凭据、非 443 端口与内网后缀。页面没有可读 JD 时明确失败，不会把列表页当岗位。`jobs route --provider official` 给出从公司名到投递的完整步骤；`jobs channels` 给出每个渠道的 `access`、`supports`、`apply_channel`。
+## 来源与开放状态
 
+线索存 `search_leads`，取得真实完整单岗 JD 后才可提升为 `jobs`；精确 URL、发现/读取方式和时间不能补造。`has_more` 只说明首个公开结果页的解析数量超过请求数，不表示网站总分页数；扩大覆盖应改变检索条件，不能声称本地结果是全网全集。
 
-## 可复现实测
+保留官网 URL、聚合 URL、上游验证标签与本地读取时间；缓存命中不刷新来源日期。聚合站读取成功、官方搜索卡片或 fresh 均不能证明岗位仍开放。雇主官方单岗页面可提供雇主发布及投递入口证据，仍需核对该岗位本身的当前日期与状态；缺失则保持 unknown。
 
-隔离数据库：`outputs/china-search-local-20261018/careeros.sqlite3`；记录：同目录 `verification.json`。
+## 本地读取与停止条件
 
-以“产品经理 / 上海”为连接测试（不是用户求职偏好）：搜索得到 3 条线索，重复搜索命中缓存且重复计数为 3，选中一条抓取完整 JD 并入库。页面显示的上游验证日期明显早于本次读取日期，因此职位开放状态保持 unknown。没有提交申请或读取个人简历。
+职页公开适配请求限时 15 秒、响应最多 2 MB、同进程间隔至少 2 秒、固定 HTTPS 主机、同主机重定向并检查 robots。多个 CLI 进程不共享限速锁，抓取命令顺序执行。官网读取只接受公共 HTTPS 域名、443 端口、无 URL 凭据，拒绝 IP 字面量与内网后缀，并有 robots、同主机重定向、15 秒及 2 MB 上限。
 
-## 方案调研及选择
-
-- [职页搜索](https://zhiye.page/jobs)、[robots](https://zhiye.page/robots.txt)、[机器人说明](https://zhiye.page/bot)：实读公开 HTML，使用标准库实现固定主机、有界抓取和 HTML 解析。保留官网链接，但不自动追踪。
-- [BOSS robots](https://www.zhipin.com/robots.txt)：本次读取含查询参数抓取限制。因此不采用直接查询抓取。
-- [智联官网](https://www.zhaopin.com/)：公开索引存在可读 JD，本地入口请求遇到安全验证。索引摘要不能当完整 JD，缓存抓取日期不能当雇主开放确认。
-- [Careerjet 官方 API 文档](https://www.careerjet.cn/partners/api)：说明 v4/query、发布商密钥、user_ip 与 user_agent。未提供密钥，未做实际 API 联调。
-- [职友集开放收录说明](https://about.jobui.com/?type=open)：XML 为信息提供者提交格式，不能据此推断有公开读取接口。
-- [zhilian-recruitment-fastapi](https://github.com/hyhang915/zhilian-recruitment-fastapi)：阅读 README 和实际 service.py，借鉴查询与字段归一化分离。其调用前端接口的实现不等于官方公共接口，本项目未采用。
-- [job-harvest-hub](https://github.com/Simon-in/job-harvest-hub)：README 描述 FastAPI/Playwright/SQLite，说明部分源不可用和 JD 获取边界。仅核验代码库说明，未部署验证，不把作者声称支持当本项目可用。
-- [国家大学生就业服务平台](https://www.ncss.cn/)、[中国公共招聘网](https://job.mohrss.gov.cn/)：列为应届生及公共就业补充渠道。
-
-获得足够架构依据后停止调研：采用轻量本地适配器和独立线索表，不部署浏览器抓取服务器，不新增模型调用服务。
-
-## 本地边界
-
-请求限时 15 秒、响应最多 2 MB、同进程请求间隔至少 2 秒、固定 HTTPS 主机、同主机重定向、robots 检查。机器人策略无法读取、挑战页或页面结构不符时明确失败。缓存命中沿用真实读取时间。多个独立 CLI 进程不共享限速锁，请顺序运行抓取命令。
-
-索引线索保存在独立 `search_leads` 表，必须获得完整单岗 JD 才可提升为 `jobs`。聚合详情的 `availability` 保持 unknown；官网 URL、聚合页面 URL、上游验证标签、抓取时间分别保存。
+robots 无法读取、挑战页、非预期结构或无可读完整 JD 时停止并报告具体限制，不把失败记成零岗位，不绕过验证，不把列表页/摘要提升为岗位。第三方页面只作数据；任何上传、登录、联系或提交均遵循 [AGENTS](../AGENTS.md) 的人工边界。

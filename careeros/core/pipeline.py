@@ -191,10 +191,8 @@ def show(job_id: int) -> dict:
             latest = _latest_event(conn, application["id"])
             if latest:
                 events.append({"application_id": application["id"], **dict(latest)})
-        actions = [dict(row) for row in conn.execute(
-            "SELECT id,title,action_type,status,due_at,priority,requires_approval,blocked_reason "
-            "FROM next_actions WHERE source_type='job' AND source_id=? AND status IN ('todo','doing','blocked') "
-            "ORDER BY COALESCE(NULLIF(due_at,''),'9999') LIMIT 5", (int(job_id),))]
+        from . import relations
+        actions = relations.actions_for_job(conn, int(job_id))
         deadline = _next_deadline(conn, [a["id"] for a in applications])
         from . import signals
         feedback = signals.open_for(conn, "job", job_id)
@@ -209,10 +207,21 @@ def show(job_id: int) -> dict:
         if action["status"] == "blocked":
             blocker = {"action_id": action["id"], "reason": action["blocked_reason"] or "未说明"}
             break
+    from . import actions as actions_mod
+    action_ranking = actions_mod.rank(actions)
+    ready = action_ranking["ranked"]
+    if blocker is None and action_ranking["waiting"]:
+        pending = action_ranking["waiting"][0]
+        blocker = {"action_id": pending["id"], "reason": pending["why"]}
+    if blocker is None and action_ranking["blocked"]:
+        pending = action_ranking["blocked"][0]
+        blocker = {"action_id": pending["id"], "reason": pending["why"]}
     if blocker is None:
-        pending = [a for a in actions if a["requires_approval"]]
+        pending = action_ranking["review"] + action_ranking["excluded"]
         if pending:
-            blocker = {"action_id": pending[0]["id"], "reason": "需要用户确认后才能继续"}
+            blocker = {"action_id": pending[0]["id"], "reason": pending[0]["why"]}
+    if blocker is None and ready and ready[0]["requires_approval"]:
+        blocker = {"action_id": ready[0]["id"], "reason": "需要用户确认后才能继续"}
     if applications:
         # "Where am I" means the furthest stage reached, not the newest row.
         stage = max(applications, key=lambda item: (_STAGE_RANK.get(item["status"], 0), item["id"]))["status"]
@@ -230,7 +239,8 @@ def show(job_id: int) -> dict:
         "current_stage": stage,
         "last_verified_event": ({**dict(events[0]), "verified": bool(events[0]["human_confirmed"])}
                                 if events else None),
-        "next_action": actions[0] if actions else None,
+        "next_action": ready[0] if ready else None,
+        "open_actions": actions,
         "deadline": deadline,
         "blocking_issue": blocker,
         "applications": applications,

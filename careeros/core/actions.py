@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from ..db import audit, connect, deserialize, now, serialize
 from .errors import NotFoundError
+from . import relations, decisions
 
 SOURCE_TYPES = ("goal", "job", "application", "learning", "interview", "reflection", "core")
 ACTION_TYPES = ("apply", "research", "prepare", "follow_up", "practice", "learn",
@@ -22,13 +23,14 @@ OPEN = ("todo", "doing", "blocked")
 #: Points contributed by the kind of object the action belongs to.
 SOURCE_WEIGHT = {"interview": 25, "application": 20, "goal": 15, "job": 12,
                  "learning": 8, "reflection": 5, "core": 3}
-#: Points contributed by proximity of the deadline (documented in
-#: docs/CAREER_TWIN_CORE_ARCHITECTURE.md §7.4; keep the two in step).
+#: Deadline proximity contributes to scheduling priority, not job fit.
 URGENCY_STEPS = ((0, 50), (3, 40), (7, 30), (14, 20), (30, 10))
 
 
 def _parse(value: str):
     if not value:
+        return None
+    if not isinstance(value, str):
         return None
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -70,7 +72,7 @@ def _effort_points(hours) -> int:
 def propose(*, title: str, source_type: str, source_id: int | None = None,
             action_type: str = "other", due_at: str = "", priority: int = 3,
             depends_on=None, suggestion_reason: str = "",
-            requires_approval: bool = False, effort_hours: int | None = None) -> dict:
+            requires_approval: bool = False, effort_hours: float | None = None) -> dict:
     title = (title or "").strip()
     if not title:
         raise ValueError("title is required")
@@ -83,12 +85,21 @@ def propose(*, title: str, source_type: str, source_id: int | None = None,
         raise ValueError("priority must be between 1 (highest) and 5")
     if not suggestion_reason.strip():
         raise ValueError("suggestion_reason is required: an action must explain why it exists")
+    if source_id is not None:
+        source_id = int(source_id)
+        if source_type != "core":
+            with connect() as conn:
+                relations.source_context(conn, source_type, source_id)
+    if due_at:
+        parsed_due = _parse(due_at)
+        if parsed_due is None:
+            raise ValueError("due_at must be a valid ISO-8601 datetime")
     depends = depends_on or []
     if not isinstance(depends, list):
         raise ValueError("depends_on must be an array of action ids")
     if effort_hours is not None:
-        effort_hours = int(effort_hours)
-        if not 0 <= effort_hours <= 200:
+        if (isinstance(effort_hours, bool) or not isinstance(effort_hours, (int, float))
+                or not math.isfinite(effort_hours) or not 0 <= effort_hours <= 200):
             raise ValueError("effort_hours must be between 0 and 200")
     with connect() as conn:
         for dep in depends:
@@ -113,33 +124,24 @@ def _goal_context(rows: list[dict]):
     Without this, "what should I do next" cannot say which objective an action
     serves, and a priority-1 goal ranks exactly like a priority-5 one.
     """
-    goal_ids, job_ids = set(), set()
-    for row in rows:
-        source_id = row.get("source_id")
-        if not source_id:
-            continue
-        if row["source_type"] == "goal":
-            goal_ids.add(int(source_id))
-        elif row["source_type"] == "job":
-            job_ids.add(int(source_id))
-    job_goal: dict[int, int] = {}
+    goal_ids = set()
+    source_contexts = {}
     goals: dict[int, dict] = {}
     with connect() as conn:
-        if job_ids:
-            marks = ",".join("?" * len(job_ids))
-            for item in conn.execute(
-                    f"SELECT job_id,goal_id FROM job_pipeline WHERE job_id IN ({marks})",
-                    tuple(job_ids)):
-                if item["goal_id"]:
-                    job_goal[item["job_id"]] = item["goal_id"]
-                    goal_ids.add(item["goal_id"])
+        for row in rows:
+            try:
+                context = relations.source_context(conn, row["source_type"], row.get("source_id"))
+            except NotFoundError:
+                context = {"job_ids": [], "goal_ids": []}
+            source_contexts[row["id"]] = context
+            goal_ids.update(context["goal_ids"])
         if goal_ids:
             marks = ",".join("?" * len(goal_ids))
             for item in conn.execute(
                     f"SELECT id,title,priority,owner,status FROM career_goals WHERE id IN ({marks})",
                     tuple(goal_ids)):
                 goals[item["id"]] = dict(item)
-    return job_goal, goals
+    return source_contexts, goals
 
 
 def _dependency_status(open_ids: dict, dep_ids: set[int]) -> dict[int, str]:
@@ -156,12 +158,15 @@ def _dependency_status(open_ids: dict, dep_ids: set[int]) -> dict[int, str]:
 
 def rank(rows: list[dict], reference: datetime | None = None) -> dict:
     reference = reference or datetime.now(timezone.utc)
-    ranked, waiting, blocked = [], [], []
+    ranked, waiting, blocked, review, excluded = [], [], [], [], []
     open_ids = {row["id"]: row for row in rows}
     dep_ids = {int(dep) for row in rows for dep in deserialize(row["depends_on_json"] or "[]")}
     external = _dependency_status(open_ids, dep_ids)
-    job_goal, goals = _goal_context(rows)
+    source_contexts, goals = _goal_context(rows)
+    with connect() as conn:
+        assessments = {row["id"]: decisions.assess_action(conn, row) for row in rows}
     for row in rows:
+        row = {**row, "assessment": assessments[row["id"]]}
         if row["status"] == "blocked":
             blocked.append({**row, "why": f"阻塞：{row['blocked_reason'] or '未说明原因'}"})
             continue
@@ -182,12 +187,23 @@ def rank(rows: list[dict], reference: datetime | None = None) -> dict:
         if missing:
             waiting.append({**row, "why": f"等待前置行动 {missing} 完成"})
             continue
+        assessment = row["assessment"]
+        if assessment["status"] in ("review", "excluded"):
+            bucket = excluded if assessment["status"] == "excluded" else review
+            bucket.append({**row, "why": "；".join(assessment["reasons"])})
+            continue
         urgency, days = _urgency(row["due_at"], reference)
         source_points = SOURCE_WEIGHT.get(row["source_type"], 3)
         priority_points = (6 - int(row["priority"])) * 5
-        goal = goals.get(_goal_id_for(row, job_goal))
+        related_goals = [goals[goal_id] for goal_id in source_contexts.get(row["id"], {}).get("goal_ids", [])
+                         if goal_id in goals]
+        # For multiple linked goals, use the highest-priority active user goal;
+        # ties resolve by stable goal ID.
+        eligible_goals = [goal for goal in related_goals
+                          if goal["status"] in ("active", "exploring") and goal["owner"] == "user"]
+        goal = min(eligible_goals, key=lambda item: (int(item["priority"]), int(item["id"])), default=None)
         goal_points = 0
-        if goal and goal["status"] in ("active", "exploring") and goal["owner"] == "user":
+        if goal:
             goal_points = (6 - int(goal["priority"])) * 3
         effort_points = _effort_points(row.get("effort_hours"))
         score = urgency + source_points + priority_points + goal_points + effort_points
@@ -202,11 +218,15 @@ def rank(rows: list[dict], reference: datetime | None = None) -> dict:
             "requires_approval": bool(row["requires_approval"]),
         }
         reasons = []
+        if assessment["status"] == "validation":
+            reasons.append("仅用于澄清未知，尚未证明岗位适合；" + "；".join(assessment["reasons"]))
         if days is not None and days < 0:
             reasons.append(f"已逾期 {abs(days)} 天")
         elif days is not None:
             reasons.append(f"{days} 天内到期")
         reasons.append(f"{row['source_type']} 来源权重 {source_points}")
+        if row.get("source_id") is not None:
+            reasons.append(f"关联来源 #{row['source_id']}")
         reasons.append(f"优先级 {row['priority']}")
         if goal_points:
             reasons.append(f"服务目标「{goal['title']}」（优先级 {goal['priority']}）")
@@ -216,18 +236,9 @@ def rank(rows: list[dict], reference: datetime | None = None) -> dict:
             reasons.append("需要用户授权后才能执行")
         ranked.append({**row, "score": score, "factors": factors, "why": "；".join(reasons)})
     ranked.sort(key=lambda item: (-item["score"], item["due_at"] or "9999", item["id"]))
-    return {"ranked": ranked, "waiting": waiting, "blocked": blocked}
-
-
-def _goal_id_for(row: dict, job_goal: dict[int, int]) -> int | None:
-    source_id = row.get("source_id")
-    if not source_id:
-        return None
-    if row["source_type"] == "goal":
-        return int(source_id)
-    if row["source_type"] == "job":
-        return job_goal.get(int(source_id))
-    return None
+    return {"ranked": ranked, "waiting": waiting, "blocked": blocked,
+            "review": review, "excluded": excluded,
+            "total_open": sum(row["status"] in OPEN for row in rows)}
 
 
 def list_actions(*, status: str | None = None, sort: str = "rank", limit: int = 20) -> dict:
@@ -286,6 +297,7 @@ def complete(action_id: int, *, human_confirmed: bool = False, evidence: str = "
             "UPDATE next_actions SET status='done', completed_at=?, completion_evidence=? WHERE id=?",
             (now(), (evidence.strip() or "user_confirmed"), action_id))
         audit(conn, "action.completed", "next_actions", action_id, evidence[:120])
+        decisions.record_completion(conn, action_id, evidence.strip(), human_confirmed)
         return {"id": action_id, "status": "done", "evidence": evidence.strip() or "user_confirmed"}
 
 

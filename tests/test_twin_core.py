@@ -357,7 +357,7 @@ class TwinCoreTest(unittest.TestCase):
             second = migrations.apply(conn, Path(os.environ["CAREEROS_DB"]))
             self.assertEqual(second["applied"], [])
             self.assertGreaterEqual(migrations.current_version(conn), 2)
-        self.assertIn(first["to"], (1, 2, 3))
+        self.assertEqual(first["to"], max(m["version"] for m in migrations.MIGRATIONS))
 
     def test_fresh_database_creates_no_backup(self):
         # A brand-new empty database has nothing worth restoring.
@@ -444,7 +444,7 @@ class TwinCoreTest(unittest.TestCase):
 
     def test_status_reports_health(self):
         status = twin.status()
-        self.assertEqual(status["schema_version"], 3)
+        self.assertEqual(status["schema_version"], 4)
         self.assertIn("jobs_without_pipeline", status["health"])
 
 

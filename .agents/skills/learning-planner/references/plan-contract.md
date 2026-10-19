@@ -1,11 +1,7 @@
-# Learning plan JSON
+# Learning plan input
 
-Required: `target_role` string, `gaps` array, `milestones` array, `review_date` ISO date.
-Recommended: `job_ids` array of existing IDs, `constraints`, `weekly_hours`, `success_metric`, `status` (`active` initially).
+Required: `target_role` string, `gaps` array, `milestones` array, `review_date` ISO date. Recommended: existing `job_ids`, `constraints`, `weekly_hours`, `success_metric`, `status` (initially `active`).
 
-Each milestone should include `title`, `deliverable`, `acceptance_criteria`, optional `due_date` and `resource_urls`.
+Milestones include title, deliverable, acceptance criteria, optional due date/resource URLs; save using the example keys in `data/examples/learning.json` (`due_date`, `resource_urls`).
 
-`python -m careeros learning save --file data/private/plan.json`
-`python -m careeros learning list`
-
-Example: `data/examples/learning.json`.
+Run `learning save --file <private-json>` and inspect `learning list`; completion remains evidence to verify, not automatic resume approval.

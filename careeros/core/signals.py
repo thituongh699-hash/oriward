@@ -94,17 +94,23 @@ def promote(feedback_id: int, *, subject: str = "work_conditions", predicate: st
             "promoting one reaction into a standing constraint requires the user's explicit "
             "confirmation (--human-confirmed); keep it case-scoped for now"
         )
+    if assertion_type not in ("constraint", "preference", "value"):
+        raise ValueError("assertion_type must be one of constraint, preference, value")
     with connect() as conn:
         row = conn.execute("SELECT * FROM user_feedback WHERE id=?", (feedback_id,)).fetchone()
         if row is None:
             raise NotFoundError(f"feedback #{feedback_id} not found")
         if row["promoted_assertion_id"]:
             raise ValueError(f"feedback #{feedback_id} already promoted to assertion #{row['promoted_assertion_id']}")
-        reason = row["reason"] or row["feedback_type"]
+        reason = (row["reason"] or "").strip()
         text = (value or reason).strip()
         case = {"target_type": row["target_type"], "target_id": row["target_id"]}
 
-    assertion_type = assertion_type if assertion_type in ("constraint", "preference", "value") else "constraint"
+    generic_labels = set(FEEDBACK_TYPES) | {
+        "感兴趣", "不感兴趣", "已申请", "拒绝", "已拒绝", "更正", "有用", "没用", "接受", "其他",
+    }
+    if not text or text.casefold() in generic_labels:
+        raise ValueError("promotion requires a specific standing rule in value or feedback reason")
     payload = {"text": text, "from_feedback": int(feedback_id), "case": case}
     created = assertions.propose(
         subject=subject, predicate=predicate, value=payload, assertion_type=assertion_type,

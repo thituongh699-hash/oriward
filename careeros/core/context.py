@@ -14,6 +14,7 @@ from ..db import connect, deserialize, now
 from . import actions as actions_mod
 from . import assertions, pipeline
 from .errors import NotFoundError
+from .profile import read_profile
 
 DEFAULT_MAX_CHARS = 3200
 
@@ -37,8 +38,7 @@ def _source(row) -> str:
 
 
 def _profile(conn) -> dict:
-    row = conn.execute("SELECT data,updated_at FROM profile WHERE id=1").fetchone()
-    return deserialize(row["data"]) if row else {}
+    return read_profile(conn) or {}
 
 
 def _claim(conn, row, *, with_basis: bool = True) -> dict:
@@ -66,6 +66,8 @@ def _live_rows(conn, assertion_type=None, statuses=None, limit=20, settled=False
     if statuses:
         clauses.append("epistemic_status IN (%s)" % ",".join("?" * len(statuses)))
         params.extend(statuses)
+    clauses.append("NOT (source_type IN ('model_inference','reflection','external_source') "
+                   "AND epistemic_status IN ('user_stated','document_verified'))")
     if settled:
         # A single hedged sentence ("I guess I value autonomy?") is a starting
         # point, not an identity trait. It stays in `uncertainties` until the
@@ -108,7 +110,11 @@ def _directions(conn) -> list[dict]:
             "explanation": row["explanation"] or None,
         })
     if not items:
-        legacy = conn.execute("SELECT id,data FROM career_directions ORDER BY id DESC LIMIT 3").fetchall()
+        legacy = conn.execute(
+            "SELECT d.id,d.data FROM career_directions d WHERE NOT EXISTS "
+            "(SELECT 1 FROM user_assertions a WHERE a.source_ref='career_directions:' || d.id "
+            "OR (json_valid(a.value_json) AND json_extract(a.value_json,'$.legacy_direction_id')=d.id)) "
+            "ORDER BY d.id DESC LIMIT 3").fetchall()
         for row in legacy:
             data = deserialize(row["data"])
             items.append({
@@ -161,12 +167,14 @@ def _active_goals(conn, limit: int = 3) -> list[dict]:
                                      (row["direction_id"],)).fetchone()
             item["direction"] = (deserialize(direction["data"]).get("title", "")
                                  if direction else f"direction:{row['direction_id']}")
-        item["open_actions"] = conn.execute(
-            "SELECT COUNT(*) FROM next_actions a "
-            "LEFT JOIN job_pipeline p ON a.source_type='job' AND a.source_id=p.job_id "
-            "WHERE a.status IN ('todo','doing','blocked') "
-            "AND ((a.source_type='goal' AND a.source_id=?) OR p.goal_id=?)",
-            (row["id"], row["id"])).fetchone()[0]
+        from . import relations
+        item["open_actions"] = 0
+        for action in conn.execute("SELECT source_type,source_id FROM next_actions WHERE status IN ('todo','doing','blocked')"):
+            try:
+                item["open_actions"] += row["id"] in relations.source_context(
+                    conn, action["source_type"], action["source_id"])["goal_ids"]
+            except ValueError:
+                continue
         result.append(item)
     return result
 
@@ -243,6 +251,8 @@ def _fit(data: dict, max_chars: int) -> dict:
         ("who_could_i_become", "directions"),
         ("where_i_am_now", "active"),
         ("where_i_am_now", "recent_signals"),
+        ("where_i_am_now", "needs_review"),
+        ("where_i_am_now", "excluded"),
         ("what_next", "actions"),
         (None, "recent_changes"),
         ("who_am_i", "strengths"),
@@ -331,6 +341,9 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
         "due_at": row["due_at"] or None,
         "requires_approval": bool(row["requires_approval"]),
         "why": row["why"],
+        "suggestion_reason": row["suggestion_reason"],
+        "decision_id": row.get("assessment", {}).get("decision_id"),
+        "assessment": row.get("assessment", {}).get("status", "unassessed"),
     } for row in ranked[:3]]
 
     referenced = {item["assertion_id"] for item in strengths + values + preferences + constraints + facts}
@@ -371,15 +384,20 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
             "pipeline": pipeline_counts,
             "applications": application_counts,
             "active": active,
-            "open_actions": len(ranked) + len(open_actions.get("waiting", [])) + len(open_actions.get("blocked", [])),
+            "open_actions": open_actions.get("total_open", len(ranked)),
             "blocked": [{"action_id": row["id"], "title": row["title"], "why": row["why"]}
                         for row in open_actions.get("blocked", [])][:2],
             "waiting": [{"action_id": row["id"], "title": row["title"], "why": row["why"]}
                         for row in open_actions.get("waiting", [])][:2],
             "user_signals": signal_count,
             "recent_signals": recent_signals,
+            "needs_review": [{"action_id": r["id"], "title": r["title"], "why": r["why"]}
+                             for r in open_actions.get("review", [])][:3],
+            "excluded": [{"action_id": r["id"], "title": r["title"], "why": r["why"]}
+                         for r in open_actions.get("excluded", [])][:3],
         },
-        "what_next": {"actions": next_actions, "rule": "紧急度+来源权重+优先级+目标+投入成本；不是成功概率"},
+        "what_next": {"actions": next_actions,
+                      "rule": "先核实约束、机会和预算；排序仅安排时间，适配依据见 suggestion_reason/decision_id"},
         "why": why,
         "recent_changes": recent_changes,
         "uncertainties": uncertainties,
@@ -387,6 +405,7 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
             "assertion": "python -m careeros context inspect --assertion-id <id>",
             "belief_history": "python -m careeros belief history --id <id>",
             "job": "python -m careeros pipeline show --job-id <id>",
+            "decision": "python -m careeros decision show --id <id>",
         },
     }
     return _fit(data, max_chars)

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from .. import migrations
 from ..db import connect, deserialize, now
 from . import assertions
+from .profile import IDENTITY_FIELDS
 
 _LEGACY_LISTS = (
     ("values", "value", "user", "value"),
@@ -42,6 +43,15 @@ def _slug(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
 
 
+def _already_mapped(source_ref: str, key: str) -> bool:
+    """A historical source mapping remains authoritative after revision/retraction."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT 1 FROM user_assertions WHERE dedupe_key=? LIMIT 1",
+            (key,),
+        ).fetchone() is not None
+
+
 def sync_legacy() -> dict:
     with connect() as conn:
         profile_row = conn.execute("SELECT data FROM profile WHERE id=1").fetchone()
@@ -62,10 +72,15 @@ def sync_legacy() -> dict:
             text = _text(item)
             if not text:
                 continue
+            value = item if isinstance(item, dict) else {"text": text}
+            claim_key = assertions.dedupe_key(subject, predicate, value, assertion_type)
+            if _already_mapped("profile:1", claim_key):
+                skipped += 1
+                continue
             try:
                 result = assertions.propose(
                     subject=subject, predicate=predicate,
-                    value=item if isinstance(item, dict) else {"text": text},
+                    value=value,
                     assertion_type=assertion_type, source_type="legacy_profile",
                     confidence="medium",
                     source_ref="profile:1",
@@ -80,9 +95,47 @@ def sync_legacy() -> dict:
             else:
                 skipped += 1
 
+    for field in IDENTITY_FIELDS:
+        if field not in profile or profile[field] in (None, "", [], {}):
+            continue
+        raw = profile[field]
+        with connect() as conn:
+            mapped = conn.execute("SELECT 1 FROM user_assertions WHERE subject='user' AND predicate=? LIMIT 1",
+                                  (field,)).fetchone()
+        if mapped:
+            skipped += 1
+            continue
+        value = raw if isinstance(raw, (dict, list)) else {"text": str(raw).strip()}
+        claim_key = assertions.dedupe_key("user", field, value, "fact")
+        if _already_mapped("profile:1", claim_key):
+            skipped += 1
+            continue
+        try:
+            result = assertions.propose(
+                subject="user", predicate=field, value=value, assertion_type="fact",
+                source_type="legacy_profile", confidence="medium", source_ref="profile:1",
+                explanation="从 v0.1 profile JSON 迁移，尚未逐条确认",
+            )
+        except ValueError as error:
+            failed.append({"source": f"profile.{field}", "error": str(error)})
+            continue
+        if result["created"]:
+            created.append(result["id"])
+        else:
+            skipped += 1
+
     for direction_id, data in directions:
         title = str(data.get("title", "")).strip()
         if not title:
+            continue
+        source_ref = f"career_directions:{direction_id}"
+        candidate = {"direction": title, "rationale": data.get("rationale", ""),
+                     "validation_status": data.get("validation_status", ""),
+                     "legacy_direction_id": direction_id}
+        claim_key = assertions.dedupe_key(f"career:{_slug(title)}", "direction_hypothesis",
+                                          candidate, "career_hypothesis")
+        if _already_mapped(source_ref, claim_key):
+            skipped += 1
             continue
         experience_ids = data.get("supporting_experience_ids") or []
         links = [{"ref_type": "experience", "ref_id": int(exp_id), "relation": "supports"}
@@ -93,11 +146,9 @@ def sync_legacy() -> dict:
         try:
             result = assertions.propose(
                 subject=f"career:{_slug(title)}", predicate="direction_hypothesis",
-                value={"direction": title, "rationale": data.get("rationale", ""),
-                       "validation_status": data.get("validation_status", ""),
-                       "legacy_direction_id": direction_id},
+                value=candidate,
                 assertion_type="career_hypothesis", source_type="model_inference",
-                confidence="medium", source_ref=f"career_directions:{direction_id}",
+                confidence="medium", source_ref=source_ref,
                 explanation="v0.1 职业方向，作为待验证假设导入",
                 links=links,
             )
@@ -116,10 +167,15 @@ def sync_legacy() -> dict:
                 continue
             reason = skill.get("reason", "") if isinstance(skill, dict) else ""
             confidence = skill.get("confidence", "medium") if isinstance(skill, dict) else "medium"
+            value = {"skill": name, "reason": reason}
+            if _already_mapped(f"experiences:{experience_id}", assertions.dedupe_key(
+                    f"skill:{_slug(name)}", "has_skill", value, "skill_hypothesis")):
+                skipped += 1
+                continue
             try:
                 result = assertions.propose(
                     subject=f"skill:{_slug(name)}", predicate="has_skill",
-                    value={"skill": name, "reason": reason},
+                    value=value,
                     assertion_type="skill_hypothesis", source_type="experience",
                     epistemic_status="inferred", confidence=confidence,
                     source_ref=f"experiences:{experience_id}",
@@ -170,7 +226,8 @@ def status() -> dict:
         counts = {}
         for table in ("user_assertions", "assertion_links", "user_feedback", "career_goals",
                       "job_pipeline", "next_actions", "reflection_runs", "applications",
-                      "experiences", "jobs", "career_directions"):
+                      "experiences", "jobs", "career_directions", "decision_records", "decision_events",
+                      "goal_revisions"):
             counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         reference = _parse_when(now())
         overdue = 0
@@ -198,6 +255,16 @@ def status() -> dict:
                 "AND NOT EXISTS (SELECT 1 FROM next_actions a WHERE a.source_type='goal' "
                 "AND a.source_id=g.id AND a.status IN ('todo','doing','blocked'))").fetchone()[0],
         }
+        from . import relations
+        covered_goals = set()
+        for action in conn.execute("SELECT source_type,source_id FROM next_actions WHERE status IN ('todo','doing','blocked')"):
+            try:
+                covered_goals.update(relations.source_context(conn, action["source_type"], action["source_id"])["goal_ids"])
+            except ValueError:
+                continue
+        health["goals_without_actions"] = sum(
+            row[0] not in covered_goals for row in conn.execute(
+                "SELECT id FROM career_goals WHERE status IN ('active','exploring')"))
     next_steps = []
     if health["jobs_without_pipeline"]:
         next_steps.append("python -m careeros twin sync-legacy")
@@ -218,6 +285,7 @@ def export_bundle() -> dict:
         for table in ("profile", "experiences", "career_directions", "jobs", "job_analyses",
                       "resumes", "applications", "application_events", "learning_plans",
                       "interviews", "user_assertions", "assertion_links", "user_feedback",
-                      "career_goals", "job_pipeline", "next_actions", "reflection_runs"):
+                      "career_goals", "job_pipeline", "next_actions", "reflection_runs",
+                      "decision_records", "decision_events", "goal_revisions"):
             bundle[table] = [dict(row) for row in conn.execute(f"SELECT * FROM {table}")]
     return bundle

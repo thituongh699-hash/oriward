@@ -22,8 +22,9 @@ printf '%s' '[{"source":"official","source_id":"A1","title":"数据产品经理"
 "$PY" -m careeros career add --file outputs/_selftest/dir.json >/dev/null
 "$PY" -m careeros jobs import --json outputs/_selftest/jobs.json >/dev/null
 
-created=$("$PY" -m careeros twin sync-legacy | "$PY" -c "import json,sys;print(json.load(sys.stdin)['assertions_created'])")
-check "$created" "5" "sync-legacy projects 5 claims"
+"$PY" -m careeros twin sync-legacy >/dev/null || fail=1
+mapped=$("$PY" -m careeros belief list | "$PY" -c "import json,sys;d=json.load(sys.stdin);print(sum(r['assertion_type'] in ('career_hypothesis','skill_hypothesis') for r in d))")
+check "$mapped" "2" "legacy direction and inferred skill are mapped"
 again=$("$PY" -m careeros twin sync-legacy | "$PY" -c "import json,sys;print(json.load(sys.stdin)['assertions_created'])")
 check "$again" "0" "sync-legacy is idempotent"
 

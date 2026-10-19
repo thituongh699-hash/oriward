@@ -13,6 +13,7 @@ from . import migrations
 from .core import actions as core_actions, assertions as core_belief, context as core_context
 from .core import goals as core_goals, pipeline as core_pipeline, reflection as core_reflection
 from .core import signals as core_signals, twin as core_twin
+from .core import decisions as core_decisions
 
 _OUTPUT_PATH = None
 
@@ -31,12 +32,15 @@ def p(obj):
 
 BELIEF_FIELDS = ("subject", "predicate", "value", "assertion_type", "source_type",
                  "confidence", "epistemic_status", "source_ref", "explanation", "links")
-REVISE_FIELDS = ("id", "value", "confidence", "explanation", "source_type", "source_ref", "reason")
+REVISE_FIELDS = ("id", "value", "confidence", "explanation", "source_type", "source_ref", "reason", "links")
 GOAL_FIELDS = ("title", "direction_id", "priority", "status", "target_date", "success_criteria",
                "time_budget_hours", "owner", "rationale")
 ACTION_FIELDS = ("title", "source_type", "source_id", "action_type", "due_at", "priority",
                  "depends_on", "suggestion_reason", "requires_approval", "effort_hours")
 SIGNAL_FIELDS = ("target_type", "target_id", "feedback_type", "reason", "source", "scope")
+GOAL_UPDATE_FIELDS = ("title", "direction_id", "priority", "status", "target_date", "success_criteria",
+                      "time_budget_hours", "rationale", "note")
+DECISION_FIELDS = ("action_id", "reason", "factors", "constraint_checks", "alternatives")
 
 
 def pick(data, fields, label):
@@ -234,6 +238,20 @@ def run(argv=None):
     x = ga.add_parser("update")
     x.add_argument("--id", type=int, required=True); x.add_argument("--status"); x.add_argument("--priority", type=int)
     x.add_argument("--target-date"); x.add_argument("--note", default="")
+    x.add_argument("--file"); x.add_argument("--title"); x.add_argument("--rationale")
+    x.add_argument("--time-budget-hours", type=float)
+    x = ga.add_parser("history"); x.add_argument("--id", type=int, required=True)
+
+    decision = sub.add_parser("decision", help="Frozen six-factor reasoning and subsequent user choices/results")
+    da = decision.add_subparsers(dest="action", required=True)
+    x = da.add_parser("record"); x.add_argument("--file", required=True)
+    x = da.add_parser("show"); x.add_argument("--id", type=int, required=True)
+    x = da.add_parser("history"); x.add_argument("--action-id", type=int, required=True)
+    x = da.add_parser("outcome")
+    x.add_argument("--id", type=int, required=True)
+    x.add_argument("--kind", choices=core_decisions.EVENT_KINDS, required=True)
+    x.add_argument("--note", required=True); x.add_argument("--evidence", default="")
+    x.add_argument("--human-confirmed", action="store_true")
 
     action = sub.add_parser("action", help="Next actions; ranking is explainable, not a probability")
     aa = action.add_subparsers(dest="action", required=True)
@@ -322,9 +340,27 @@ def run(argv=None):
             p(core_goals.add(**pick(s.json_file(args.file), GOAL_FIELDS, "goal")))
         elif args.action == "list":
             p(core_goals.list_goals(status=args.status))
+        elif args.action == "history":
+            p(core_goals.history(args.id))
         else:
-            p(core_goals.update(args.id, status=args.status, priority=args.priority,
-                                target_date=args.target_date, note=args.note))
+            updates = pick(s.json_file(args.file), GOAL_UPDATE_FIELDS, "goal update") if args.file else {}
+            for key in ("status", "priority", "target_date", "title", "rationale", "time_budget_hours"):
+                if getattr(args, key) is not None:
+                    updates[key] = getattr(args, key)
+            if args.note:
+                updates["note"] = args.note
+            p(core_goals.update(args.id, **updates))
+        return
+    if args.domain == "decision":
+        if args.action == "record":
+            p(core_decisions.record(**pick(s.json_file(args.file), DECISION_FIELDS, "decision")))
+        elif args.action == "show":
+            p(core_decisions.get(args.id))
+        elif args.action == "history":
+            p(core_decisions.history(args.action_id))
+        else:
+            p(core_decisions.outcome(args.id, kind=args.kind, note=args.note, evidence=args.evidence,
+                                     human_confirmed=args.human_confirmed))
         return
     if args.domain == "action":
         if args.action == "list":

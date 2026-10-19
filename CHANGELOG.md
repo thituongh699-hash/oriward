@@ -1,72 +1,57 @@
 # 更新日志
 
-格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+历史记录只说明指定版本或日期的变化，不作为当前运行规则；使用入口见 [README](README.md)，当前契约见 [AGENTS](AGENTS.md)。
 
-## [Unreleased]
+## [Unreleased] — 2026-10-19 文档收敛
 
-### 文档交付
+- 只保留运行入口、9 个技能及其按需参考、操作流程、数据模型、决策与渠道配置；历史统一保存在本文件。
+- 删除独立架构、Core 设计、调研、路线图、验收、用户长手册、本地执行、投递记录及安全/贡献说明；删除重复英文入口。先将唯一有效操作和边界合并到 AGENTS、README、WORKFLOWS、DATA_MODEL 和相关技能契约。
+- 删除 outputs 下旧 Markdown 审查/修复报告及 WorkBuddy 日期日志；原始测试日志、虚构验收资料、脚本和个人数据保留。WorkBuddy 只保留指向项目规则及本日志的短入口，不维护第二份规则。
+- 技能只加载当前任务和所选渠道的参考；红蓝审查程序归分析契约，简历来源映射和版本约束归简历契约；完整 JSON 示例归 DATA_MODEL，六因素决策归 DECISIONS。
+- 修正导入来源/读取方法枚举、浏览器完整详情准入、猎聘成功/待验证响应语义、经历推断来源范围、面试技能阶段描述；移除旧 profile 来源、过时锚点、带注释 JSON 和设计文档中的“当前测试全绿”表述。
+- WORKFLOWS 接管首次启动、Core/探索命令、compact/output、跨会话与备份说明；建议、选择和依据变化时链接决策契约，普通 unassessed 日程任务不被误写成强制六因素建议。
+- 保留事实确认、隐私、外部动作、来源日期、版本冻结、独立复审及纯格式导出边界。调整源码中一处已删除设计文档的注释引用，不改变运行逻辑。
+- 本轮主 Markdown 从 38 篇减到 26 篇，约减少 46% 字符；另删除 6 份忽略目录内的日期日志/审计说明，共删除 18 份文档。九篇技能正文从 27,947 减到 20,690 字符（约 −26%）；这是文件统计，不是实测模型 token 节省率。
+- 本轮验证：Python 3.12.14 / SQLite 3.53.1，202 项单元测试通过、零失败/跳过；两条隔离虚构演示共 48 次 CLI 调用通过；9 个技能结构校验通过，95 条完整 CLI 示例参数解析通过。补充 JSON 示例、章节锚点和脚本路径检查；独立五场景复核发现的导出 probe 路径已修正。未验证招聘平台实时连接、全部宿主自动加载或 DOCX/PDF 页面视觉效果，个人库未访问，业务逻辑未改变。
 
-- 新增项目内 `document-export` 技能及本地导出脚本，把已生成的简历或审核后的结构化内容转成 DOCX/PDF。
-- 转换只改变格式：不写数据库、不确认事实、不改变评审等级或投递状态；待事实确认的简历改版会被拒绝导出。
-- 简历必须用 `--resume-id` 转换已登记版本，结构化输入只用于学习/投递计划、面试笔记和报告；形似简历的结构化输入会被拒绝。
-- 生成依赖只放在可选组中；默认启动仍使用标准库。
+## 2026-10-18 — schema v4 核查修复（未发布）
 
-### Career Twin Core 修正
+- 阻止模型推断以用户/文档背书状态入库；低置信自述保留原话与情境，不直接进入稳定画像。
+- 身份由断言账本统一投影；兼容 profile 写入同事务提交。旧缓存、legacy 同步和方向回退不能复活撤回/替代记录。
+- 修订继承证据并保留各版解释，也支持显式替换或清空来源。
+- 贯通 action→申请/面试/学习→岗位→目标关系，校验对象存在；岗位视图、排序、回顾和健康检查使用同一关联。
+- 新增 `goal_revisions`、`decision_records`、`decision_events`：保存完整目标版本、六因素/约束判断、备选和时点快照，追加用户选择及结果；变更依据触发重评，旧历史不可原位更新。
+- 检查硬约束冲突/未知、能力证据、岗位关闭及单项每周预算；未记录决定的任务只算日程，不代表适配。多任务总负荷和自然语言核实仍由 Agent 负责。
+- 迁移失败回滚，升级备份失败则停止；不补造旧目标未知历史。导出仍只转换内容。
+- 历史修复验收记录：Python 3.12.14 / SQLite 3.53.1 下 200 项测试通过；Python 3.14.2 下 30 次独立 CLI 虚构生命周期调用通过，Bash smoke 8 项通过。原始证据在忽略目录 `outputs/audits/2026-10-18-career-twin-core/`；这是当日结果，不保证其他环境或未来状态。
+- 当日未验证全部第三方宿主的技能自动发现/每轮回写，也未重新做 DOCX/PDF 页面视觉验收；技能结构、CLI 连通和导出行为测试不等于这些验收。
 
-- 已废弃的断言版本不能再被确认、存疑或撤回，避免同一单值属性出现两条“当前有效”记录。
-- 低置信的模糊自述先进入 `uncertainties`，确认后才进入“我是谁”，不再直接固化为价值观或能力标签。
-- `job_pipeline` 增加 `goal_id`、`next_actions` 增加 `effort_hours`（schema v3），排序可以解释“服务哪个目标、预计投入多少”。
-- 排序权重与架构文档对齐；已取消的前置行动不再静默放行后续行动，阻塞中的行动必须先解除阻塞才能完成。
-- `signal add` 校验目标对象存在；`signal promote` 必须带 `--human-confirmed`，一次反馈不会由 Agent 自行升级为长期约束。
-- `reflection decide --accept` 记录用户实际批准了哪几条提案，而不是只留一句备注。
-- 单岗视图的阶段取最靠后的申请状态，并标出“最近事件是否经用户确认”。
+## 2026-10-18 — 导出、schema v3 与首次文档精简
 
-### 启动入口与可移植性
+- 新增第 9 个技能 `document-export`：已登记简历使用 `--resume-id`；学习/投递计划、面试笔记和报告使用结构化输入。拒绝形似简历的结构化输入及待事实确认的改版；输出 DOCX/PDF/manifest，不写数据库、确认事实或改变求职状态。依赖只放在可选 documents 组。
+- 废弃断言版本只读；单次反馈默认 this_case，`signal promote` 须人工确认明确长期规则；signal 目标必须存在。
+- schema v3 增加 `job_pipeline.goal_id` 和 `next_actions.effort_hours`；排序解释目标和成本；阻塞行动不得直接完成，取消的前置不放行后续。reflection 按条记录选择；岗位视图区分阶段和已核实事件。
+- 启动交给 Agent 检查 Python/SQLite；支持文件与终端的宿主可执行，只有聊天的工具不能声称已经保存。脚本解释器可配置，Windows DPAPI 辅助保持可选。
+- 猎聘迁入 extras、默认关闭；未启用零网络并返回 EXTENSION_DISABLED。凭证通过环境注入；本地辅助结束后恢复开关。
+- 新增 MIT 许可、包元数据、dev/documents 可选依赖、Linux/Windows/macOS CI 配置及隔离演示。CI 配置存在不等于已在所有平台执行。
+- 上一轮文档精简（提交 `160c34a`）：37 篇主 Markdown 从 151,043 降为 133,469 字符，命令前缀出现从 245 降为 155；新增预算/文件链接检查，当时 160 项测试。此前阶段 132/144/154 项结果属于不同快照，不能当最新基线。
+- 导出历史视觉边界：虚构中文 PDF 曾生成并逐页检查；当时 DOCX 规范渲染因缺 LibreOffice 未完成，不能用 PDF 成果代替 DOCX 视觉验收。低依赖环境曾跳过 4 项可选生成测试。
 
-- 首次使用统一为“取得仓库、加载到 Agent、开始对话”；由 Agent 检查 Python/SQLite、初始化本地记录并读取进度，不要求用户先照着分平台命令安装。
-- 通用命令块取消 PowerShell 标记，移除浏览器辅助示例中固定的可执行文件名；保留真实依赖 Windows DPAPI 的可选凭证脚本及其边界。
-- 缺少猎聘凭证时返回通用配置文档与环境变量名；不再把 Windows 辅助脚本当作通用必需步骤。
-- CI 增加 Windows 和 macOS 作业，保留 Linux 的 Python 版本覆盖，禁用扩展检查改用可移植 Python 步骤，并增加隔离端到端演示。
+## 2026-10-18 — 渠道与方案研究摘要
 
-### 用户指引与定位
+- 采用 provider adapter→规范化记录→不可变快照；简历、申请、反馈和评审绑定具体版本。CLI 确定性校验，语义交给 Agent，不增加第二个模型、编排服务或后台进程。
+- JobSpy 源码曾核对统一 adapter/输入/输出结构（`jobspy/__init__.py` blob `3821545a887dbfd4d14299eaf78bf53b4ab060e4`），仅借鉴架构，未引入其 scraper 或依赖。[仓库](https://github.com/speedyapply/JobSpy)。
+- Reactive Resume 的产品能力来自上游 README 自述，仅借鉴文档版本与申请追踪概念，未部署或发送个人资料。[仓库](https://github.com/reactive-resume/reactive-resume)。
+- eventsourcing 的 `domain.py` 曾核对对象ID/版本与事件划分（blob `d745a209cd25525dbb88ca593054c8dd0fe151a1`），未引入其依赖或验证其后端。[源码](https://github.com/pyeventsourcing/eventsourcing/blob/9.5/eventsourcing/domain.py)。
+- Greenhouse/Lever 公开接口曾做受限读取；Lever 空列表是有效响应，leverdemo 为虚构演示，不能当真实岗位。[Greenhouse](https://developers.greenhouse.io/job-board.html)、[Lever](https://github.com/lever/postings-api)。
+- 职页搜索/缓存/完整JD提升、官网单岗解析、猎聘搜索卡片曾核验；检索成功与岗位仍开放分开记录。Careerjet 只有接口调研、无适配器；职友集开放XML是收录输入，不是读取接口。
+- 浏览器当日记录：Edge 智联搜索卡片/预览可读，但完整内容需登录；BOSS 主页可读，输入/搜索遇节点失效、空白与超时，未证明端到端成功。这是一次环境记录，不是永久不支持，也不代表今天可用。
+- 未承诺全网覆盖、登录态抓取、反爬绕过、自动投递或录用效果。多用户产品、自动排程、额外模板和适配器仍需独立设计与验收，历史计划不是实现事实。
 
-- 新增独立的 `docs/USER_GUIDE.md`，覆盖环境准备、首次对话、学生经历梳理、学习与投递计划、复盘及更换 Agent 工具后的续接。
-- 主要用户定位为在校生与应届生；让理解、能力证据和求职安排随多次会话逐步积累，尊重学业负担与用户节奏。
-- 项目指引、架构文档和环境检查改为工具无关的 Agent 表述，说明自动执行与用户手动配合的能力条件，不把未实测的厂商集成标为已验证。
-- 保留“海投是负期望的”作为项目标语。
+## [0.2.0] — 2026-10-18
 
-### 变更
-
-- 猎聘渠道从主包迁至 `careeros/extras/liepin.py`，改为默认关闭的可选扩展：未设置 `CAREEROS_ENABLE_LIEPIN=1` 时返回 `EXTENSION_DISABLED` 且不发起网络请求；主包不再在模块级引用该模块。
-- `scripts/liepin.ps1` 的 Python 解释器参数默认值改为 PATH 上的 `python`，可用 `-Python` 覆盖；运行期间临时设置 `CAREEROS_ENABLE_LIEPIN=1`，结束后恢复。
-- `scripts/smoke_twin_core.sh` 的解释器改为 `PYTHON` 环境变量可覆盖；示例夹具改为中性的虚构值。
-- 仓库文档中的本机绝对路径改为占位符或可配置参数。
-
-### 新增
-
-- `LICENSE`（MIT）。
-- `README.en.md`：英文精简版，含"不会替你投简历"的边界说明。
-- 根目录 `SECURITY.md`、`CONTRIBUTING.md`、`CHANGELOG.md`。
-- `.github/workflows/tests.yml`：Python 3.10 / 3.12 / 3.13 矩阵，编译检查与全量单元测试。
-- `pyproject.toml` 补齐 license、readme、authors、classifiers、可选 dev 依赖；包发现改为 `include = ["careeros*"]`。
-- README 增加目录、示例数据导入、参与贡献与许可证段。
-
-### 测试
-
-- 新增 1 个用例：可选扩展默认关闭时返回 `EXTENSION_DISABLED` 且不触发网络调用（合计 132 个）。
-
-## [0.2.0] - 2026-10-18
-
-### 新增
-
-- Career Twin Core：带来源、置信度与版本链的用户状态中枢（断言、目标、流水线、行动、信号、上下文预算、反思提案）。
-- `context brief` 有界五问摘要与 `context why` 钻取。
-- 岗位来源：Greenhouse/Lever 公开 board 同步、企业官网单页 JSON-LD 解析、JSON/CSV 导入、不可变快照。
-- 多平台同岗位归并分组、投递渠道与日程节点、`already_applied_in_group` 重复投递提示。
-- 证据约束简历生成、冻结 JD/简历版本的七阶段红蓝评审、`actual|mock|hypothesis` 反馈分流与改版复审。
-- 八个 `.agents/skills/` 编排技能。
-
-### 说明
-
-- 不提供自动投递、账号登录、验证码绕过或外部消息发送；`application record` 只记录用户已确认的真实投递。
-- A–D 评级为本地模拟审查结果，恒带 `SIMULATED_HIRING_REVIEW_NOT_EMPLOYER_VERDICT`。
+- Career Twin Core：带来源、置信度与版本链的断言、目标、机会、行动、反馈、五问上下文摘要及反思提案。
+- 八个职业工作流技能，主要服务学生与应届生；从真实经历、学业负担与用户节奏出发，逐步探索方向和积累证据。
+- Greenhouse/Lever公开同步、官网单页JSON-LD解析、JSON/CSV导入、来源快照、跨平台候选归并、渠道/日程与重复投递提示。
+- 证据约束Markdown简历、冻结JD/简历的七阶段模拟招聘评审、actual/mock/hypothesis反馈与改版复审。
+- 不提供登录、验证码绕过、自动提交或消息发送；application record只记用户确认的事实。模拟A–D不等于雇主决定、录用概率或个人价值。

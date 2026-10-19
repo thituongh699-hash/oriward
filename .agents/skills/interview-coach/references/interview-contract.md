@@ -1,12 +1,9 @@
-# Interview session and feedback contracts
+# Interview and feedback input
 
-Interview session JSON requires `job_id`, `questions`, `practice`, `next_actions`. Recommended: `resume_id`, interview round/date and `company_sources`, where each item preserves URL, retrieved_at, sourced fact and separate inference. Each practice item stores the actual question, user's actual answer, feedback and supporting experience IDs. Never save an invented polished answer as the user's response.
+Interview JSON requires `job_id,questions,practice,next_actions`. Recommended: exact `resume_id`, round/date, `company_sources` with URL, retrieved_at, fact and separate inference. Each practice item records the actual question, user's answer, feedback and supporting experience IDs; never save an invented polished answer as observed.
 
-```text
-python -m careeros interview save --file data/private/interview-session.json
-python -m careeros interview list
-```
+Use `interview save --file <private-json>` and inspect `interview list`.
 
-To feed the hiring loop, feedback JSON requires `job_id`, exact `resume_id`, `kind=actual|mock|hypothesis`, one of the seven stage names, `outcome=pass|reject|pending|withdrawn|unknown`, observation, source, non-future timezone-aware observed_at, and at least one categorized action (`wording|practice|evidence|retarget`).
+Feedback requires `job_id`, exact `resume_id`, `kind:actual|mock|hypothesis`, a stage from [the review contract](../../job-analysis/references/analysis-contract.md), `outcome:pass|reject|pending|withdrawn|unknown`, observation, source, non-future timezone-aware `observed_at`, and at least one `wording|practice|evidence|retarget` action.
 
-Actual employer feedback additionally requires the matching non-READY application ID. Mock practice uses `kind=mock`; an explanation inferred from silence/rejection uses `kind=hypothesis`. Feedback never changes application status or grade automatically.
+Actual employer feedback also needs the matching non-READY application ID. Practice is mock; causal explanations inferred from silence/rejection are hypotheses. Saving feedback changes neither application status nor review grade.

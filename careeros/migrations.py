@@ -18,6 +18,7 @@ Guarantees:
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -240,6 +241,46 @@ CREATE TABLE IF NOT EXISTS reflection_runs (
 );
 """
 
+DECISION_SQL = """
+CREATE TABLE IF NOT EXISTS goal_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    goal_id INTEGER NOT NULL REFERENCES career_goals(id),
+    revision INTEGER NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(goal_id, revision)
+);
+CREATE TABLE IF NOT EXISTS decision_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_id INTEGER NOT NULL REFERENCES next_actions(id),
+    previous_id INTEGER REFERENCES decision_records(id),
+    reason TEXT NOT NULL,
+    alternatives_json TEXT NOT NULL,
+    factors_json TEXT NOT NULL,
+    constraint_checks_json TEXT NOT NULL,
+    context_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_decision_action ON decision_records(action_id, id);
+CREATE TABLE IF NOT EXISTS decision_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    decision_id INTEGER NOT NULL REFERENCES decision_records(id),
+    kind TEXT NOT NULL CHECK(kind IN ('accepted','rejected','result','completed')),
+    note TEXT NOT NULL,
+    evidence TEXT NOT NULL DEFAULT '',
+    human_confirmed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_decision_events ON decision_events(decision_id, id);
+CREATE TRIGGER IF NOT EXISTS decision_records_no_update
+BEFORE UPDATE ON decision_records BEGIN SELECT RAISE(ABORT, 'decisions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS decision_events_no_update
+BEFORE UPDATE ON decision_events BEGIN SELECT RAISE(ABORT, 'decision events are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS goal_revisions_no_update
+BEFORE UPDATE ON goal_revisions BEGIN SELECT RAISE(ABORT, 'goal revisions are immutable'); END;
+"""
+
 # Columns that later migrations added to existing tables. Kept as data so a
 # rerun is idempotent even if a previous attempt died between DDL statements.
 ADDED_COLUMNS = {
@@ -280,11 +321,24 @@ def add_missing_columns(conn) -> list[str]:
     return added
 
 
+def _seed_goal_history(conn):
+    cursor = conn.execute("SELECT * FROM career_goals ORDER BY id")
+    names = [description[0] for description in cursor.description]
+    for row in cursor.fetchall():
+        snapshot = dict(zip(names, row))
+        snapshot["success_criteria"] = json.loads(snapshot.pop("success_criteria_json"))
+        conn.execute(
+            "INSERT OR IGNORE INTO goal_revisions(goal_id,revision,snapshot_json,reason,created_at) "
+            "VALUES (?,1,?,?,?)", (snapshot["id"], json.dumps(snapshot, ensure_ascii=False, sort_keys=True),
+                                  "schema v4 升级时的目标基线；更早版本未知", _now()))
+
+
 MIGRATIONS = [
     {"version": 1, "name": "baseline_v0_1", "sql": BASELINE, "post": None},
     {"version": 2, "name": "career_twin_core", "sql": CORE_SQL, "post": add_missing_columns},
     # v3 links the three time scales: a goal owns a job, a job carries effort.
     {"version": 3, "name": "goal_job_action_link", "sql": "SELECT 1;", "post": add_missing_columns},
+    {"version": 4, "name": "decision_and_goal_history", "sql": DECISION_SQL, "post": _seed_goal_history},
 ]
 
 
@@ -313,7 +367,7 @@ def _checksum(sql: str) -> str:
 def _has_user_data(conn) -> bool:
     """A backup of an empty file is noise; a backup of real data is insurance."""
     for table in ("profile", "experiences", "career_directions", "jobs",
-                  "applications", "user_assertions"):
+                  "applications", "user_assertions", "career_goals", "next_actions", "decision_records"):
         try:
             if conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone():
                 return True
@@ -353,19 +407,23 @@ def apply(conn, path: Path | None = None) -> dict:
     if path is not None and path.exists() and _has_user_data(conn):
         try:
             backup_path = _backup(conn, path, current_version(conn))
-        except OSError:
-            backup_path = None
+        except OSError as error:
+            raise OSError("Cannot back up existing CareerOS data; migration was not started") from error
 
     applied = []
     for migration in pending:
-        conn.executescript(migration["sql"])
-        if migration["post"]:
-            migration["post"](conn)
-        conn.execute(
-            "INSERT OR REPLACE INTO schema_migrations(version,name,applied_at,checksum) VALUES (?,?,?,?)",
-            (migration["version"], migration["name"], _now(), _checksum(migration["sql"])),
-        )
-        conn.commit()
+        try:
+            conn.executescript("BEGIN IMMEDIATE;\n" + migration["sql"])
+            if migration["post"]:
+                migration["post"](conn)
+            conn.execute(
+                "INSERT INTO schema_migrations(version,name,applied_at,checksum) VALUES (?,?,?,?)",
+                (migration["version"], migration["name"], _now(), _checksum(migration["sql"])),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         applied.append(migration["name"])
     return {"from": min(done) - 1 if done else 0, "to": current_version(conn),
             "applied": applied, "backup": backup_path}

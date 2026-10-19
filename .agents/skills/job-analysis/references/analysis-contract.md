@@ -1,31 +1,38 @@
-# Structured analysis and hiring review contract
+# Analysis and simulated hiring review
 
-## Analysis
+Load this contract when saving analysis or conducting the formal red/blue review. Stored entities and JSON examples live in [DATA_MODEL](../../../../docs/DATA_MODEL.md).
 
-Start from `python -m careeros analysis draft --job-id <id>`, but treat it only as an all-unknown line template. Use `analysis packet` to perform the semantic pass.
+## Analysis input
 
-Required analysis fields: `job_id`, `requirements`, `unknowns`. Include `coverage_confirmed` (default false) and `company_context`.
+`analysis draft` is an all-unknown line template, not semantic understanding. Use `analysis packet --job-id <id> --compact` to read the complete JD and approved evidence.
 
-Each requirement contains:
+Required: `job_id`, `requirements`, `unknowns`; include `coverage_confirmed` (default false) and `company_context`. Each requirement has:
 
-- `id`: stable unique string within the analysis;
-- `text`: semantic requirement;
-- `kind`: `hard_gate|core|preferred`;
+- stable unique `id`, semantic `text`, `kind:hard_gate|core|preferred`;
 - `quote`: exact substring of the current JD;
-- `match`: `met|gap|unknown`;
-- `experience_ids`: nonempty approved/verified IDs only when match is met;
-- `rationale`: evidence-based reason.
+- `match:met|gap|unknown`, evidence-based `rationale`;
+- `experience_ids`: nonempty approved/verified IDs whenever match is `met`.
 
-Each company context item contains `url`, ISO `retrieved_at`, sourced `fact`, separate `inference`, and optional `availability=listed|closed|unknown`. Keep the exact linked source. Set `coverage_confirmed=true` only after inspecting the full JD.
+Company context items preserve exact `url`, timezone-aware ISO `retrieved_at`, sourced `fact`, separate `inference` and optional `availability:listed|closed|unknown`. Availability evidence must concern the exact vacancy, not a company news page. Set `coverage_confirmed:true` only after full-JD inspection.
 
-Save with `python -m careeros analysis save --file data/private/analysis.json`. Recommendation/confidence/job hash are computed or normalized by the CLI; do not pretend the draft is autonomous AI scoring.
+Run `analysis save --file <json>` and inspect a fresh packet. The CLI computes/normalizes recommendation, confidence and job hash.
 
-## Review
+## Red review
 
-Obtain `python -m careeros review packet --resume-id <id>`. Its template has all seven stages and may have `analysis_id=null` if no structured analysis exists; create the analysis first.
+Get `review packet --resume-id <id> --compact`; create structured analysis first if `analysis_id` is null. Review only the frozen exact resume, job, analysis and dossier. Prior findings/actions remain available for comparison.
 
-Every stage has `verdict=pass|risk|fail|unknown`, nonempty rationale, questions and requirement IDs. Across stages, every requirement ID must be covered. Red findings contain unique ID, stage, `presentation|preparation|structural|blocker`, issue, evidence, requirement IDs and `resolved=false`. A finding discovered in the current review cannot be marked resolved there. Blue actions cite a finding and use `wording|practice|evidence|retarget`.
+Cover `ats`, `hr`, `hiring_manager`, `technical`, `pressure`, `background`, `competition`. Each stage needs `verdict:pass|risk|fail|unknown`, nonempty rationale, questions and requirement IDs; together they must cover every requirement.
 
-The CLI rejects caller-supplied grade/status/reasons and validates exact resume/job hashes. Use `review save --file`, then `review list [--resume-id ID]`. A revised resume needs a new independent review; omit obsolete findings only after the new evidence/version actually removes them.
+Pressure questions must be job relevant and respectful, without discriminatory criteria. Background review checks supplied evidence consistency, not unauthorized surveillance. Competition uses a hypothetical public-market benchmark, never invented applicants.
 
-A requires coverage confirmed, every requirement met, every stage pass, no unknowns and a <=30-day listed source. Known D blockers take precedence over unresolved unknown gates. All results remain simulated, never employer verdicts or offer guarantees.
+Red findings need unique ID, stage, `presentation|preparation|structural|blocker`, issue, observed evidence, requirement IDs and `resolved:false`. A new finding cannot be resolved in the same review.
+
+## Blue response and re-review
+
+Map every finding to `wording|practice|evidence|retarget`. Wording clarifies existing facts; it cannot cure structural deficits or hard gates. Save with `review save --file <json>` and inspect `review list [--resume-id <id>]`. The CLI rejects supplied grade/status/reasons and validates exact resume/job hashes.
+
+After evidence or a resume changes, obtain a fresh packet and conduct an independent review. Omit an old finding only when the new evidence/version removes it. A revision inherits no grade. Stop after two red/blue rounds without new evidence; retain unresolved gaps and route substantive work to practice, evidence or retargeting.
+
+## Results
+
+The CLI computes simulated grades: A requires confirmed full coverage, every requirement met, every stage pass, no unknowns and a listed source no more than 30 days old. B retains preparation risk; C indicates substantive competitive weakness; D indicates a known veto/mismatch. Unknown gates yield `NEEDS_EVIDENCE` unless a known D blocker already decides the result. These are not employer verdicts or offer guarantees.
