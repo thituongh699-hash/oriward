@@ -76,9 +76,15 @@ class DocumentExportTests(unittest.TestCase):
             if path == target:
                 (target / "document.docx").write_bytes(b"third-party")
             return result
-        with patch.object(Path, "mkdir", new=create_racing_file):
+        # Exercise the exclusive-write race independently of system fonts and
+        # optional renderers: generation must never start for this collision.
+        with patch.object(Path, "mkdir", new=create_racing_file), \
+                patch.object(exporter, "_choose_font", return_value=self.root / "fixture.ttf"), \
+                patch.object(exporter, "_font_family", return_value="Fixture"), \
+                patch.object(exporter, "_write_docx") as write_docx:
             with self.assertRaisesRegex(exporter.ExportError, "OUTPUT_COLLISION.*document.docx"):
                 exporter.export_document(document=self.document, output_dir=target, formats=("docx",))
+        write_docx.assert_not_called()
         self.assertEqual((target / "document.docx").read_bytes(), b"third-party")
 
     def test_real_generated_resume_keeps_summary_headline_experience_order_and_provenance(self):

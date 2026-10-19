@@ -18,7 +18,7 @@ class RebrandingTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="oriward-rename-")
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         for setting in (patch.dict(os.environ, {}, clear=True),
                         patch.object(db, "PROJECT_ROOT", self.root),
                         patch.object(services, "PROJECT_ROOT", self.root)):
