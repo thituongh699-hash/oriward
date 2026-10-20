@@ -47,6 +47,15 @@ class ResumeTemplateTests(unittest.TestCase):
                 exporter._validate_resume_content(doc)
 
     def test_renderer_and_page_policy_are_explicit(self):
+        try:
+            import docx  # noqa: F401 -- optional generation dependency
+            import reportlab  # noqa: F401 -- optional generation dependency
+            import pypdf  # noqa: F401 -- optional page count dependency
+            exporter._choose_font(exporter._all_text(exporter._normalise_document(self.doc)), None, require_pdf=True)
+        except ImportError:
+            self.skipTest("optional document libraries unavailable")
+        except exporter.ExportError as exc:
+            self.skipTest(f"No embeddable local font: {exc}")
         if "libreoffice" in dict(exporter._renderer_candidates()):
             result = exporter.export_document(document=self.doc, output_dir=self.root / "lo", renderer="libreoffice")
             self.assertEqual(result["renderer"]["pdf"], "LibreOffice")
@@ -73,6 +82,10 @@ class ResumeTemplateTests(unittest.TestCase):
         self.assertEqual(len(docx.Document(target / "document.docx").inline_shapes), 1)
 
     def test_bundled_samples_are_fictional_and_have_no_external_file_links(self):
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            self.skipTest("pypdf unavailable; run with the documents extra to inspect bundled PDFs")
         import xml.etree.ElementTree as ET
         for template in exporter.TEMPLATES:
             folder = ROOT / "docs/assets/resume-templates" / template
@@ -87,7 +100,6 @@ class ResumeTemplateTests(unittest.TestCase):
                 all_xml = b"\n".join(package.read(name) for name in package.namelist() if name.endswith(".xml"))
                 self.assertNotIn(str(ROOT).encode(), all_xml)
                 self.assertNotIn(b"C:\\Users\\", all_xml)
-            from pypdf import PdfReader
             text = "\n".join(page.extract_text() or "" for page in PdfReader(folder / "sample.pdf").pages)
             for heading in ("教育经历", "项目经历", "技能", "兴趣"):
                 self.assertIn(heading, text)

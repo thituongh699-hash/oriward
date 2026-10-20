@@ -112,7 +112,7 @@ class OptimizationCliTests(unittest.TestCase):
             self.run_cli("search-run", "finish", "--id", rid)
         out = self.run_cli("search-run", "finish", "--id", rid, "--file", self.file({
             "partial": True, "reason": "本轮尚未完成公司职位目录"}))[0]
-        self.assertTrue(Path(out["report_path"]).is_relative_to(self.root / "reports"))
+        self.assertTrue(Path(out["report_path"]).resolve().is_relative_to((self.root / "reports").resolve()))
         self.assertIn("部分完成", Path(out["report_path"]).read_text(encoding="utf-8"))
 
     def test_search_errors_and_disabled_routes_also_return_report_paths(self):
