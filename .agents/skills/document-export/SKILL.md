@@ -1,25 +1,25 @@
 ---
 name: document-export
-description: Convert an existing registered Oriward resume or reviewed career plan into editable DOCX and readable PDF, then inspect rendered pages. Use for local format conversion, not content revision, arbitrary Word templates or application submission.
+description: Convert existing registered Oriward resumes or reviewed career plans into editable DOCX and PDF with reusable Chinese resume templates. For local conversion only, not content revision or submission.
 ---
 
-# Career document export
+# Career Document Export
 
-Convert existing approved content. If wording needs revision, return to the relevant career skill first.
+Convert approved content; return to the relevant career skill if wording needs revision.
 
-1. For resumes use the exact registered `--resume-id` from `resume build` or an approved revision. Do not retype claims into structured input; resume-like input is refused.
-2. For plans, interview notes or reports, load [references/export-contract.md](references/export-contract.md) and prepare reviewed `--input` JSON, retaining source dates and actual/mock/hypothesis labels.
-3. From the repository root, use the host-selected interpreter to run `python .agents/skills/document-export/scripts/export_documents.py --probe`. Use the project's optional document dependencies only if needed; core CLI operation must remain independent.
-4. Select an embeddable local PDF font covering all text. Let the helper discover one or pass a checked `--font`. Never replace missing Chinese characters, suppress missing-glyph errors or download an unknown-licence font.
-5. Export to a new directory under `outputs/`; never overwrite an earlier export.
+1. For resumes use the registered `--resume-id`. Never invent or rewrite claims during layout. Source freshness and factual approval must pass.
+2. For plans and reports, read [references/export-contract.md](references/export-contract.md) and provide reviewed JSON with meaningful source dates and actual/mock/hypothesis labels.
+3. Run from the repository root with the host Python and optional document dependencies. `--probe` checks availability without writing.
+4. Pick `--template modern-cn` for the optional portrait layout or `--template clean` for a restrained no-photo layout. Interests should be last and omitted when absent. Never synthesize missing sections or facts.
+5. Export to a new output directory. `--renderer auto` prefers Word, then LibreOffice, to render the editable DOCX as PDF; it falls back to ReportLab and records the renderer. `--renderer reportlab` selects that fallback directly. Explicit `word` or `libreoffice` choices fail if unavailable.
 
 ```text
-python .agents/skills/document-export/scripts/export_documents.py --resume-id <ID> --output-dir <new-directory>
-python .agents/skills/document-export/scripts/export_documents.py --input <reviewed-json> --output-dir <new-directory>
+python .agents/skills/document-export/scripts/export_documents.py --resume-id <ID> --output-dir outputs/<new-dir> --template clean
+python .agents/skills/document-export/scripts/export_documents.py --input <reviewed-json> --output-dir outputs/<new-dir> --template modern-cn --photo <local-image>
 ```
 
-Reopen both files and `manifest.json`; check titles, paragraphs, bullets and table cells against the source. Render and inspect every PDF page and the DOCX through a local office renderer or host preview for missing glyphs, clipping, overlap, tiny text, broken tables and blank pages. Layouts are independent and pagination may differ; valid XML or extracted text does not prove visual quality.
+Templates target A4, 16-18 mm margins, 20 pt name, 12.5 pt section headings and at least 10 pt body text. The `a4-1-2` policy allows one- or two-page resumes; `a4-1` rejects larger resume PDFs rather than shrinking type. Use an embeddable local CJK font covering all text. Missing glyphs remain errors; do not download fonts with unknown licences.
 
-Generation is not visual approval. If a font or renderer is unavailable, retain drafts and report the missing capability and unperformed checks; never rename another format to claim success.
+Reopen DOCX/PDF and compare content to source. Render and inspect all pages and inspect DOCX through Word, LibreOffice or the host preview. Text extraction and generation status do not establish visual quality. `manifest.json` names the template, page policy, renderer and files. Samples under `docs/assets/resume-templates/` are wholly fictional; regenerate using `scripts/generate_template_samples.py`.
 
-Conversion does not create or change any Oriward record: it confirms no claim, changes no grade, completes no action and records no application. Upload, email, login and submission need separate authorization. Report output paths, source ID/input and visual inspection limits.
+Conversion does not create or change any Oriward record and never submits applications. Report paths and any renderer or visual-review limits.

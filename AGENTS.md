@@ -22,7 +22,7 @@ Read `.agents/skills/<name>/SKILL.md` if not discovered. Load only task-relevant
 | Company research and interview practice | `interview-coach` |
 | Convert existing approved content to DOCX/PDF | `document-export` |
 
-Use [WORKFLOWS](docs/WORKFLOWS.md) for command sequences, [DATA_MODEL](docs/DATA_MODEL.md) for structures and [DECISIONS](docs/DECISIONS.md) when recommending or reassessing actions. Use `<domain> <action> --help` for exact flags. History: [CHANGELOG](CHANGELOG.md).
+Use [WORKFLOWS](docs/WORKFLOWS.md) for commands, [DATA_MODEL](docs/DATA_MODEL.md) for structures and [DECISIONS](docs/DECISIONS.md) for recommendations. Flags: `<domain> <action> --help`. History: [CHANGELOG](CHANGELOG.md).
 
 ## Evidence and state
 
@@ -46,8 +46,8 @@ Use [WORKFLOWS](docs/WORKFLOWS.md) for command sequences, [DATA_MODEL](docs/DATA
 
 ## Repository maintenance
 
-SQLite defaults to `data/private/oriward.sqlite3` (override: `ORIWARD_DB`); schema v5 is managed by `oriward/migrations.py` with consistent SQLite upgrade backups. Use fictional fixtures and isolated outputs for tests. Core remains standard-library-only; document dependencies are optional and must not be imported into core startup.
+SQLite defaults to `data/private/oriward.sqlite3` (override: `ORIWARD_DB`); schema v6 uses consistent upgrade backups. Use isolated fictional tests. Core stays standard-library-only; document dependencies remain optional. Prefer source-mapped tailored composition after reading the experience index. Resume hashes never gate operations. Keep current + three historical Markdown files per job; preserve private state.
 
-Legacy settings/databases remain readable via `oriward/legacy.py`; new variables take precedence.
+Legacy settings remain readable; new variables take precedence.
 
 After source changes run `python -m unittest discover -s tests -v`; validate edited documentation links, examples and relevant skill contracts. Run document export tests with optional dependencies when affected; skipped generation tests are not evidence of successful rendering. Keep configuration, personal data and unrelated changes intact. Update affected runtime contracts and CHANGELOG instead of adding separate research, review or completion documents.

@@ -97,6 +97,8 @@ def render_report(run):
         rows.append("| " + " | ".join(_cell(v) for v in (provider, LABELS[receipt["status"]],
                     "是" if receipt["attempted"] else "否", evidence, receipt.get("coverage"),
                     receipt.get("next_action"))) + " |")
+        for round_no, attempt in enumerate(receipt.get("attempts", []), 1):
+            rows.append(f"| {_cell(provider)} · 第{round_no}次 | {_cell(LABELS.get(attempt.get('status'), attempt.get('status')))} | {'是' if attempt.get('attempted') else '否'} | {_cell(attempt.get('reason'))}；{_cell(attempt.get('observed_at'))} | {_cell(attempt.get('coverage'))} | {_cell(attempt.get('next_action'))} |")
     rows += ["", "## 数量与覆盖", "", "| 范围 | 发现线索 | 完整JD | 导入岗位 | 去重后 |", "|---|---|---|---|---|"]
     for provider, receipt in run["channels"].items():
         rows.append("| " + " | ".join([_cell(provider)] + [_cell(receipt["counts"].get(key), "未知") for key in COUNT_KEYS]) + " |")
@@ -104,6 +106,13 @@ def render_report(run):
     rows.append("| 合计 | " + " | ".join(_cell(totals.get(key), "未知") for key in COUNT_KEYS) + " |")
     rows += ["", "去重后默认只汇总各渠道内部去重数；跨渠道身份未核对。失败或未执行的数量为未知，不是零岗位。",
              _cell(run.get("coverage"), "覆盖完整性未核对；不得宣称全量检索。"), "", "## 候选岗位", ""]
+    pipeline = run.get("pipeline")
+    if isinstance(pipeline, dict):
+        rows += ["## 流程阶段", "", f"当前阶段：{_cell(pipeline.get('stage'))}；扩词轮次：{pipeline.get('expansions', 0)}/2；修复轮次：{pipeline.get('repairs', 0)}/2。",
+                 "阶段记录是调度状态；只有带实际执行回执的渠道尝试才代表搜索发生。", ""]
+        for event in pipeline.get("history", []):
+            rows.append(f"- {_cell(event.get('stage'))} / {_cell(event.get('status'))} / {_cell(event.get('provider'))}：{_cell(event.get('detail'))}")
+        rows.append("")
     if not run["candidates"]:
         rows.append("本批次没有已记录候选；请结合渠道状态判断，不能将失败解释为零岗位。")
     for index, item in enumerate(run["candidates"], 1):
@@ -159,7 +168,7 @@ def create_run(scope, planned_channels, *, output_dir=None):
     providers = list(dict.fromkeys(_text(item, "provider", 80, required=True) for item in planned_channels))
     stamp = now()
     run = {"scope": scope, "planned_channels": providers, "created_at": stamp, "finished_at": "",
-           "channels": {p: {"status": "not_attempted", "attempted": False, "reason": "尚无执行回执",
+           "channels": {p: {"status": "not_attempted", "attempted": False, "attempts": [], "reason": "尚无执行回执",
                              "coverage": "", "counts": {key: None for key in COUNT_KEYS}} for p in providers},
            "candidates": [], "counts": {}, "coverage": "", "next_action": ""}
     root = Path(output_dir).expanduser().resolve() if output_dir else database_path().parent / "search-reports"
@@ -213,9 +222,17 @@ def record_channel(run_id, provider, status, *, attempted=None, reason="", cover
         run = _load(conn, run_id)
         if provider not in run["planned_channels"]:
             raise ValidationError("Channel must be included in planned_channels")
-        run["channels"][provider] = receipt
+        channel = run["channels"][provider]
+        # Keep the legacy latest-receipt fields while preserving every round.
+        channel.setdefault("attempts", []).append(dict(receipt))
+        channel.update(receipt)
         _persist(conn, run)
     return receipt
+
+
+def append_attempt(run_id, provider, status, **kwargs):
+    """Append one round/query/repair receipt, retaining previous observations."""
+    return record_channel(run_id, provider, status, **kwargs)
 
 
 def add_candidates(run_id, candidates):
@@ -245,9 +262,16 @@ def add_candidates(run_id, candidates):
     return {"run_id": run_id, "recorded": len(cleaned), "candidate_count": len(run["candidates"])}
 
 
-def finish_run(run_id, *, counts=None, coverage="", next_action=""):
+def finish_run(run_id, *, counts=None, coverage="", next_action="", partial=False, reason=""):
     with connect() as conn:
         run = _load(conn, run_id)
+        if "pipeline" in run:
+            from .search_cli import next_packet
+            complete = next_packet(run_id).get("stage") == "complete"
+            if not complete and (partial is not True or not isinstance(reason, str) or not reason.strip()):
+                raise ValidationError("Pipeline has pending stages; partial finish requires a reason")
+            if partial:
+                coverage = ("部分完成：" + reason.strip())
         if counts is not None:
             _object(counts, "counts", 1000)
             if set(counts) - set(COUNT_KEYS):

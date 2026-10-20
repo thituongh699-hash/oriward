@@ -4,7 +4,6 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-import re
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from .db import PROJECT_ROOT, connect, serialize, deserialize, audit, now, one, database_path
@@ -254,7 +253,9 @@ def build_resume(job_id, experience_ids, headline=""):
         for exp_id, e in experiences:
             lines += [f"### {e['event']}", ""]
             if e.get("context"):
-                lines += [str(e["context"]), ""]
+                from .resume_content import public_context
+                if public_context(e["context"]):
+                    lines += [public_context(e["context"]), ""]
             bullets = list(e.get("actions", [])) + list(e.get("outcomes", []))
             for bullet in bullets:
                 if str(bullet).strip():
@@ -263,7 +264,6 @@ def build_resume(job_id, experience_ids, headline=""):
         lines += ["---", "", f"*来源记录：岗位 {job_id}（{job_data['company']} / {job_data['title']}）；经历 ID {', '.join(map(str, experience_ids))}。*", "*发布/投递前请人工核对内容；未经证实的推断不应当写入简历。*", ""]
         content = "\n".join(lines)
         with db:
-            name = re.sub(r"[^a-zA-Z0-9_-]", "-", f"{job_data['company']}-{job_data['title']}")[:45].strip("-") or "job"
             output_dir = resume_output_dir()
             output_dir.mkdir(parents=True, exist_ok=True)
             digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -271,27 +271,33 @@ def build_resume(job_id, experience_ids, headline=""):
             cursor = db.execute("INSERT INTO resumes(job_id,experience_ids,output_path,sha256,created_at) VALUES (?,?,?,?,?)",
                                 (job_id, serialize(experience_ids), "PENDING", digest, now()))
             resume_id = cursor.lastrowid
-            path = output_dir / f"resume_{resume_id}_{name}.md"
+            from .resume_content import artifact_path
+            path = artifact_path(db, resume_id)
             with path.open("x", encoding="utf-8", newline="\n") as handle:
                 handle.write(content)
             db.execute("UPDATE resumes SET output_path=? WHERE id=?", (str(path.resolve()), resume_id))
             from .experience_library import record_resume_sources
             record_resume_sources(db, resume_id, experience_ids)
             audit(db, "resume.built", "resumes", resume_id)
-            return {"id": resume_id, "path": str(path), "sha256": digest}
+            result = {"id": resume_id, "path": str(path), "sha256": digest}
+    from .resume_content import cleanup
+    result["retention"] = cleanup(job_id=job_id, apply=True, rename=False)
+    return result
 
 
 def _validate_channel(channel):
-    from .discovery import APPLY_CHANNELS
+    from .discovery import APPLY_CHANNELS, route_registry
     if channel in (None, ""):
         return ""
-    if channel not in APPLY_CHANNELS:
+    allowed = APPLY_CHANNELS | {key for key, value in route_registry().items() if value.get("apply_channel")}
+    if channel not in allowed:
         raise ValidationError("channel must be one of " + ", ".join(sorted(APPLY_CHANNELS)))
     return channel
 
 
 def prepare_application(job_id, resume_id, channel="", apply_url=""):
-    from .discovery import APPLY_CHANNELS
+    from .discovery import APPLY_CHANNELS, route_registry
+    apply_channels = APPLY_CHANNELS | {key for key, value in route_registry().items() if value.get("apply_channel")}
     with connect() as db:
         job = one(db, "jobs", job_id)
         resume = one(db, "resumes", resume_id)
@@ -314,7 +320,7 @@ def prepare_application(job_id, resume_id, channel="", apply_url=""):
             # A provider that is not an application channel (aggregators, fixtures)
             # stays unknown instead of being silently mislabelled.
             source = job_data.get("source", "")
-            channel = source if source in APPLY_CHANNELS else ""
+            channel = source if source in apply_channels else ""
         apply_url = clean_url(apply_url or job_data.get("apply_url") or job["url"] or "")
         cursor = db.execute(
             "INSERT INTO applications(job_id,resume_id,status,note,external_reference,channel,apply_url,applied_at,created_at,updated_at) "
@@ -358,8 +364,8 @@ def resume_path(row):
 
 def verify_resume(row):
     path = resume_path(row)
-    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != row["sha256"]:
-        raise ValidationError("Resume file missing or changed; register a new revision instead of editing a saved version")
+    if not path.is_file():
+        raise ValidationError("Resume Markdown is missing or was pruned; select a retained version")
     return path
 
 

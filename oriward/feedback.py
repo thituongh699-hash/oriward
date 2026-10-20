@@ -128,6 +128,8 @@ def _lineage(db, resume_id):
         row = db.execute("SELECT base_resume_id FROM resume_versions WHERE resume_id=?", (resume_id,)).fetchone()
         if row is None:
             return ids
+        if row["base_resume_id"] == resume_id:
+            return ids
         resume_id = row["base_resume_id"]
         if resume_id in ids:
             raise s.ValidationError("Invalid resume lineage")
@@ -220,7 +222,9 @@ def revise_resume(data):
                     raise s.ValidationError("Every section requires bullets")
                 lines += ["", f"### {exp['event']}", ""]
                 if exp.get("context"):
-                    lines += [str(exp["context"]), ""]
+                    from .resume_content import public_context
+                    if public_context(exp["context"]):
+                        lines += [public_context(exp["context"]), ""]
                 for bullet in section["bullets"]:
                     s.validate_dict(bullet, ["text", "source_texts"])
                     text = _text(bullet["text"], "bullet.text")
@@ -244,7 +248,8 @@ def revise_resume(data):
             rid = cursor.lastrowid
             output_dir = s.resume_output_dir()
             output_dir.mkdir(parents=True, exist_ok=True)
-            new_path = output_dir / f"resume_{rid}_revision.md"
+            from .resume_content import artifact_path
+            new_path = artifact_path(db, rid)
             # Exclusive create prevents accidental overwrite on mismatched databases.
             with new_path.open("x", encoding="utf-8", newline="\n") as handle:
                 handle.write(content)
@@ -254,7 +259,7 @@ def revise_resume(data):
                        (rid, base_id, review_id, serialize(feedback_ids), reason, serialize(mapping), status, now()))
             audit(db, "resume.revised", "resumes", rid, f"base={base_id};facts={status}")
             record_resume_sources(db, rid, selected)
-            return {"id": rid, "path": str(new_path), "sha256": digest, "base_resume_id": base_id,
+            result = {"id": rid, "path": str(new_path), "sha256": digest, "base_resume_id": base_id,
                     "factual_status": status, "requires_new_review": True,
                     "whole_draft_review_required": True,
                     "pending_new_facts": [m for m in mapping if m["change_type"] in {"new_facts", "unclassified"}]}
@@ -265,6 +270,9 @@ def revise_resume(data):
             if 'handle' in locals():
                 new_path.unlink()
         raise
+    from .resume_content import cleanup
+    result["retention"] = cleanup(job_id=base["job_id"], apply=True, rename=False)
+    return result
 
 
 def confirm_revision(resume_id, *, human_confirmed=False):
@@ -322,8 +330,6 @@ def resolve_feedback(feedback_id, review_id, note):
         s.verify_resume(resume)
         from .experience_library import ensure_resume_current
         ensure_resume_current(db, resume)
-        if review["resume_sha256"] != resume["sha256"]:
-            raise s.ValidationError("Resolution review does not match this resume")
         current_job = deserialize(one(db, "jobs", resume["job_id"])["data"])
         if review["job_sha256"] != _job_sha256(current_job):
             raise s.ValidationError("Resolution review is stale because the JD changed")

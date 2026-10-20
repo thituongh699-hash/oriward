@@ -329,13 +329,12 @@ class AssessmentTests(unittest.TestCase):
         with self.assertRaisesRegex(s.ValidationError, "different jobs"):
             a.save_review(self.review(resume, analysis_id, ["python"]))
 
-    def test_review_rejects_changed_resume_and_stale_job(self):
+    def test_review_accepts_edited_resume_but_rejects_stale_job(self):
         job_id, _, analysis_id, resume, resolved = self.prepared([
             self.requirement("python", "Python is required", "hard_gate", "met", ["EXP1"])
         ])
         Path(resume["path"]).write_text("changed", encoding="utf-8")
-        with self.assertRaisesRegex(s.ValidationError, "missing or changed"):
-            a.save_review(self.review(resume, analysis_id, [resolved[0]["id"]]))
+        a.save_review(self.review(resume, analysis_id, [resolved[0]["id"]]))
 
         # Build a fresh resume, then mutate the stored JD after the analysis snapshot.
         fresh = s.build_resume(job_id, [1])
@@ -396,14 +395,15 @@ class AssessmentTests(unittest.TestCase):
         with self.assertRaisesRegex(s.ValidationError, "computed"):
             a.save_review(review)
 
-    def test_stale_supplied_resume_hash_is_rejected(self):
+    def test_legacy_supplied_resume_hash_is_ignored(self):
         _, _, analysis_id, resume, resolved = self.prepared([
             self.requirement("python", "Python is required", "hard_gate", "met", ["EXP1"])
         ])
         review = self.review(resume, analysis_id, [resolved[0]["id"]])
         review["resume_sha256"] = "0" * 64
-        with self.assertRaisesRegex(s.ValidationError, "hash is stale"):
-            a.save_review(review)
+        a.save_review(review)
+        del review["resume_sha256"]
+        a.save_review(review)
 
 
 if __name__ == "__main__":

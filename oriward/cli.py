@@ -10,7 +10,7 @@ from .db import connect, database_path, deserialize
 from . import services as s
 from . import sources, assessment, feedback, discovery, tracking, official
 from . import migrations
-from . import experience_library, onboarding, search_runs
+from . import experience_library, onboarding, search_runs, resume_content, intake_cli, search_cli
 from .core import actions as core_actions, assertions as core_belief, context as core_context
 from .core import goals as core_goals, pipeline as core_pipeline, reflection as core_reflection
 from .core import signals as core_signals, twin as core_twin
@@ -89,6 +89,7 @@ def run(argv=None):
     parser = argparse.ArgumentParser(prog="python -m oriward", description="Oriward local evidence-backed career toolkit")
     parser.add_argument("--output", help="Save full JSON locally and print only path/size/hash")
     sub = parser.add_subparsers(dest="domain", required=True)
+    intake_cli.register(sub)
     sub.add_parser("init", help="Create or migrate the local SQLite schema")
     sub.add_parser("brief", help="Legacy object counts; prefer `context brief`")
     pipe = sub.add_parser("pipeline", help="Opportunity pipeline; without an action prints the legacy funnel")
@@ -143,7 +144,8 @@ def run(argv=None):
             x.add_argument("--provider", choices=["greenhouse", "lever"], required=True)
             x.add_argument("--board", required=True); x.add_argument("--company")
             x.add_argument("--limit", type=int, default=100)
-            actions.add_parser("channels")
+            x = actions.add_parser("channels")
+            x.add_argument("--file", help="Persist a discovered route or enable/disable a route from JSON")
             x = actions.add_parser("browser-record"); x.add_argument("--file", required=True)
             x = actions.add_parser("browser-runs"); x.add_argument("--limit", type=int, default=10)
             for name in ("search", "search-plan", "shortlist", "browser-plan"):
@@ -154,7 +156,7 @@ def run(argv=None):
                 else:
                     x.add_argument("--limit", type=int, default=10)
                 if name == "search":
-                    x.add_argument("--provider", default="zhiye", choices=list(discovery.CHANNELS))
+                    x.add_argument("--provider", default="zhiye")
                     x.add_argument("--refresh", action="store_true")
                 if name == "browser-plan":
                     x.add_argument("--provider", choices=["boss", "zhilian"], required=True)
@@ -164,15 +166,22 @@ def run(argv=None):
             x = actions.add_parser("group"); x.add_argument("--rebuild", action="store_true")
             x.add_argument("--limit", type=int, default=50)
             x = actions.add_parser("route")
-            x.add_argument("--provider", required=True, choices=list(discovery.CHANNELS))
+            x.add_argument("--provider", required=True)
             x.add_argument("--query", default=""); x.add_argument("--location", default="")
         elif domain == "leads":
             x = actions.add_parser("import"); x.add_argument("--file", required=True)
             x = actions.add_parser("list")
-            x.add_argument("--provider", choices=list(discovery.CHANNELS)); x.add_argument("--limit", type=int, default=20)
+            x.add_argument("--provider"); x.add_argument("--limit", type=int, default=20)
             x = actions.add_parser("promote"); x.add_argument("--id", type=int, required=True); x.add_argument("--file", required=True)
             x = actions.add_parser("fetch"); x.add_argument("--id", type=int, required=True); x.add_argument("--refresh", action="store_true")
         elif domain == "resume":
+            x = actions.add_parser("tailor-packet"); x.add_argument("--job-id", type=int, required=True)
+            x = actions.add_parser("compose"); x.add_argument("--job-id", type=int, required=True); x.add_argument("--file", required=True)
+            x = actions.add_parser("cleanup")
+            group = x.add_mutually_exclusive_group(required=True)
+            group.add_argument("--job-id", type=int); group.add_argument("--all", action="store_true")
+            mode = x.add_mutually_exclusive_group(required=True)
+            mode.add_argument("--dry-run", action="store_true"); mode.add_argument("--apply", action="store_true")
             x = actions.add_parser("build")
             x.add_argument("--job-id", type=int, required=True)
             x.add_argument("--experience-ids", required=True, help="Comma-separated evidence IDs")
@@ -259,6 +268,9 @@ def run(argv=None):
     sr = sub.add_parser("search-run", help="Search receipts and Markdown reports, including partial failures")
     sa = sr.add_subparsers(dest="action", required=True)
     x = sa.add_parser("start"); x.add_argument("--file", required=True)
+    x = sa.add_parser("plan"); x.add_argument("--file", required=True)
+    x = sa.add_parser("next"); x.add_argument("--id", type=int, required=True)
+    x = sa.add_parser("record-stage"); x.add_argument("--id", type=int, required=True); x.add_argument("--file", required=True)
     x = sa.add_parser("record"); x.add_argument("--id", type=int, required=True); x.add_argument("--file", required=True)
     x = sa.add_parser("candidates"); x.add_argument("--id", type=int, required=True); x.add_argument("--file", required=True)
     x = sa.add_parser("finish"); x.add_argument("--id", type=int, required=True); x.add_argument("--file")
@@ -269,6 +281,9 @@ def run(argv=None):
     ca = ctx.add_subparsers(dest="action", required=True)
     x = ca.add_parser("brief", help="Five-question session brief with IDs for drill-down")
     x.add_argument("--max-chars", type=int, default=3200)
+    x.add_argument("--focus")
+    x = ca.add_parser("section"); x.add_argument("--name", required=True); x.add_argument("--focus")
+    x.add_argument("--max-chars", type=int, default=12000)
     for name in ("inspect", "why", "history"):
         x = ca.add_parser(name); x.add_argument("--assertion-id", type=int, required=True)
 
@@ -381,7 +396,9 @@ def run(argv=None):
         return
     if args.domain == "context":
         if args.action == "brief":
-            p(core_context.brief(max_chars=args.max_chars))
+            p(core_context.brief(max_chars=args.max_chars, focus=args.focus))
+        elif args.action == "section":
+            p(core_context.section(args.name, focus=args.focus, max_chars=args.max_chars))
         elif args.action == "inspect":
             p(core_context.inspect(args.assertion_id))
         elif args.action == "why":
@@ -497,20 +514,36 @@ def run(argv=None):
         else: p(onboarding.resume_topic(args.id))
         return
     if args.domain == "search-run":
-        if args.action == "start":
+        if args.action == "plan":
+            data = pick(s.json_file(args.file), ("scope", "planned_channels", "output_dir"), "search plan")
+            p(search_cli.start(data["scope"], data.get("planned_channels"), output_dir=data.get("output_dir")))
+        elif args.action == "next": p(search_cli.next_packet(args.id))
+        elif args.action == "record-stage":
+            data = s.json_file(args.file)
+            p(search_cli.record_stage(args.id, **data))
+        elif args.action == "start":
             p(search_runs.create_run(**pick(s.json_file(args.file), ("scope", "planned_channels", "output_dir"), "search run")))
         elif args.action == "record":
-            fields = ("provider", "status", "attempted", "reason", "coverage", "counts", "next_action", "source_url", "observed_at")
-            p(search_runs.record_channel(args.id, **pick(s.json_file(args.file), fields, "channel receipt")))
+            data = s.json_file(args.file)
+            if "pipeline" in search_runs.show(args.id):
+                p(search_cli.record_attempt(args.id, **data))
+            else:
+                p(search_runs.record_channel(args.id, **data))
         elif args.action == "candidates": p(search_runs.add_candidates(args.id, s.json_file(args.file)))
         elif args.action == "finish":
-            values = pick(s.json_file(args.file), ("counts", "coverage", "next_action"), "search completion") if args.file else {}
+            values = pick(s.json_file(args.file), ("counts", "coverage", "next_action", "partial", "reason"), "search completion") if args.file else {}
             p(search_runs.finish_run(args.id, **values))
         elif args.action == "show": p(search_runs.show(args.id))
         else: p(search_runs.list_runs(args.limit))
         return
     if args.domain == "jobs":
-        if args.action == "channels": p(discovery.channels())
+        if args.action == "channels":
+            if args.file:
+                data = pick(s.json_file(args.file), ("provider", "enabled", "url", "name", "reason", "resolution", "request_assistance"), "channel route")
+                if data.pop("request_assistance", False):
+                    p(discovery.request_route_assistance(data["provider"]))
+                else: p(discovery.set_route(**data))
+            else: p([{"id": key, **value} for key, value in discovery.route_registry().items()])
         elif args.action == "search":
             p(search_runs.execute_search(args.provider, {"query": args.query, "location": args.location, "limit": args.limit},
                                          lambda: discovery.search_local(args.query, args.location, args.provider, args.limit, args.refresh)))
@@ -557,6 +590,12 @@ def run(argv=None):
         else: p(discovery.promote_lead(args.id, s.json_file(args.file)))
         return
     if args.domain == "resume":
+        if args.action == "tailor-packet":
+            p(resume_content.tailor_packet(args.job_id)); return
+        if args.action == "compose":
+            p(resume_content.compose(args.job_id, s.json_file(args.file))); return
+        if args.action == "cleanup":
+            p(resume_content.cleanup(job_id=args.job_id, apply=args.apply)); return
         if args.action == "build":
             ids = [int(x.strip()) for x in args.experience_ids.split(",") if x.strip()]
             p(s.build_resume(args.job_id, ids, args.headline))
@@ -617,6 +656,8 @@ def run(argv=None):
                 return record if args.record_only else official.import_official(record)
             p(search_runs.execute_search("official", {"source_url": args.url, "company": args.company}, read_official))
         return
+    if args.domain in {"intake", "history"}:
+        p(intake_cli.dispatch(args)); return
     mapping = {
         "experience": ("experiences", ["event", "actions", "outcomes", "evidence", "approved_for_resume"]),
         "career": ("career_directions", ["title", "rationale", "supporting_experience_ids", "gaps", "validation_status"]),

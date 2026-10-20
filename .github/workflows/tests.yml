@@ -91,7 +91,9 @@ jobs:
 
       - name: Document export behavior
         if: matrix.python-version == '3.13'
-        run: python -m unittest discover -s tests -p test_document_export.py -v
+        run: |
+          python -m unittest discover -s tests -p test_document_export.py -v
+          python -m unittest discover -s tests -p test_resume_templates.py -v
 
   package:
     runs-on: ubuntu-latest
@@ -123,6 +125,9 @@ jobs:
               "docs/assets/oriward-poster.png",
               "scripts/render_readme_assets.py",
           } <= files
+          for template in ("modern-cn", "clean"):
+              assert {f"docs/assets/resume-templates/{template}/sample.{ext}" for ext in ("docx", "pdf")} <= files
+              assert f"docs/assets/resume-templates/{template}/preview.png" in files
           assert not any(".." in path.parts or path.is_absolute() for path in names)
           assert not any(name.startswith(("data/private/", "outputs/", ".workbuddy/")) for name in files)
           print("ok: source workflows present; private state excluded")

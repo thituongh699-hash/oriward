@@ -154,12 +154,12 @@ class FeedbackTests(unittest.TestCase):
         with self.assertRaisesRegex(s.ValidationError, "does not match"):
             self.feedback(job_id=999)
 
-    def test_file_tamper_blocks_packet_revision_and_feedback(self):
-        Path(self.resume["path"]).write_text("tampered", encoding="utf-8")
+    def test_file_edits_do_not_require_resume_hash_checks(self):
+        path = Path(self.resume["path"])
+        path.write_text(path.read_text(encoding="utf-8") + "\nEdited wording\n", encoding="utf-8")
         for fn in (lambda: s.prepare_application(self.job, self.resume["id"]),
                    self.revision, self.feedback, lambda: a.review_packet(self.resume["id"])):
-            with self.assertRaisesRegex(s.ValidationError, "changed"):
-                fn()
+            fn()
 
     def test_resolution_requires_linked_new_review(self):
         fid = self.feedback()["id"]
@@ -199,7 +199,7 @@ class FeedbackTests(unittest.TestCase):
             s.build_resume(self.job, [eid])
 
     def test_collision_does_not_delete_existing_file(self):
-        collision = self.root / "resumes" / "resume_2_revision.md"
+        collision = Path(self.resume["path"].replace("_v1_", "_v2_"))
         collision.write_text("existing artifact", encoding="utf-8")
         with self.assertRaises(FileExistsError):
             self.revision()

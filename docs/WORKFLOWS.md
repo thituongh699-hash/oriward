@@ -6,6 +6,17 @@
 
 ## 启动与接续
 
+v0.3 首次引导询问是否允许从指定历史对话建立初步经历库，可选允许、稍后或拒绝。允许仅限明确指定的导出文件；提取保留用户、模型和工具说话方，不把模型建议当成用户经历：
+
+```text
+python -m oriward intake history-consent --answer allow --scope data/private/chat-export.jsonl
+python -m oriward history extract --file data/private/chat-export.jsonl --query 项目 --max-chars 12000
+```
+
+先整理简略索引、关联原始细节，再集中核实重要归属和新增事实，不强制证明附件或精确 KPI。提取不会自动写入经历；使用既有 experience add/revise 保存。经历和城市安排可用后，提示是否需要每日定时搜索；`intake search-schedule --answer now|later|no` 记录意愿，宿主建立任务前确认时间、时区和范围。每日最多制作三份新的高相关岗位简历，保持未投递；无变化时安静。此命令本身不创建任务。
+
+默认上下文先保留恢复包：当前话题和下一步、身份/教育/城市安排、相关目标、可执行动作或阻塞、经历索引入口、岗位/简历 ID、暂停分支数量和恢复入口、重要更正及冲突。`context brief --focus <主题>` 优先当前主题；`context section --name <章节>` 展开详情。默认 3200 字符按实际 JSON 计数；过小预算无法容纳最小信息时明确报告 `over_budget`。
+
 有文件与终端权限的 Agent 先读 [AGENTS](../AGENTS.md)，检查 Python 版本和 SQLite 支持，再首次运行：
 
 ```text
@@ -27,7 +38,17 @@ python -m oriward pipeline show --job-id 1
 
 文件和对话不会自动入库；必须有对应 CLI 成功输出才能说已保存。只有聊天窗口时可先整理脱敏草稿，明确没有本地读取、保存、实时搜索或后台提醒能力。
 
-## 经历、认识与方向
+## 按岗位定制与保留版本
+
+先用 `resume tailor-packet --job-id <id>` 读取有界经历索引、公司/JD 和分析；再展开相关经历，确定岗位目的和 2–4 项交付。Agent 选择、包装并改写经历，构成目标公司与岗位的版本。`resume compose --job-id <id> --file <json>` 直接保存定制稿，无需先生成原文简历。输入见 [简历契约](../.agents/skills/resume-builder/references/resume-review.md)。
+
+措辞调整复用事实审批，新增事实集中确认。简介、改写标题和正文均需来源映射。通用经历库不被岗位措辞覆盖。保留来源版本、事实确认及独立评审，取消简历哈希门槛。兼容字段不要求填写。
+
+同一岗位自动保留当前 Markdown 和三个历史 Markdown；命名含公司、岗位、城市、岗位编号、版本和日期。超量正文在新稿成功保存后才清理，数据库历史及 claim_map 保留，PDF/DOCX/照片不参与。旧库升级不自动删文件；先 `resume cleanup --all --dry-run` 查看，再 `--apply`。仅处理登记在输出根目录内的 Markdown。
+
+DOCX/PDF 使用 [导出技能](../.agents/skills/document-export/SKILL.md) 的两套模板及虚构样张，选择含可选照片的现代中文单栏或无照片清爽版。执行逐页检查，不通过过小字号强挤一页。实际 renderer 和视觉检查状态写入清单。
+
+## 经历盘点
 
 首次以简略经历盘点为主：做过什么、本人主要动作、已知结果和探索性标签。复用已有材料，不要求完整深访、证明文件或量化 KPI 才能开始。简短询问目标职位/公司、安排和渠道接入意愿；已有紧急 JD 时直接处理。只问缺失信息，暂缓/拒绝后不反复追问：
 

@@ -52,7 +52,7 @@ def main():
             raise AssertionError(message)
 
     try:
-        check(run("init")["schema_version"] == 5, "schema v5")
+        check(run("init")["schema_version"] == 6, "schema v6")
         run("profile", "save", "--file", save("profile.json", {
             "display_name": "职业孪生验收候选人（虚构）", "values": ["可迁移能力"],
             "hard_constraints": ["不接受长期出差"]}))

@@ -39,6 +39,14 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def normalize(data, query, fetched_at):
+    """Return ``(records, skipped)`` when the payload is trustworthy, else ``None``.
+
+    A single card whose detail URL is not the canonical ``/job/...shtml`` shape
+    (for example a social-hire ``/a/...`` page) must not discard an otherwise
+    valid page: that row is skipped and counted. The URL is never guessed or
+    rewritten, and a page where nothing is usable still requires validation
+    instead of being reported as a verified empty result.
+    """
     if not isinstance(data, dict) or type(data.get("code")) is not int or data["code"] != 0:
         return None
     payload = data.get("data")
@@ -46,6 +54,7 @@ def normalize(data, query, fetched_at):
     if not isinstance(rows, list) or len(rows) > 1000:
         return None
     records = []
+    skipped = 0
     for row in rows:
         if not isinstance(row, dict):
             return None
@@ -58,7 +67,8 @@ def normalize(data, query, fetched_at):
         except ValueError:
             return None
         if not url.path.startswith("/job/") or not url.path.endswith(".shtml"):
-            return None
+            skipped += 1
+            continue
         fields = ("location", "salary", "education", "workYears", "industry")
         if any(not isinstance(row.get(k, ""), str) for k in fields):
             return None
@@ -69,15 +79,22 @@ def normalize(data, query, fetched_at):
                         "discovery_method": "official_api", "discovered_at": fetched_at,
                         "salary": row.get("salary", ""), "education": row.get("education", ""),
                         "experience": row.get("workYears", "")})
-    return records
+    if skipped and not records:
+        return None
+    return records, skipped
 
 
 def validated_result(data, metadata, limit):
-    records = normalize(data, metadata["query"], metadata["fetched_at"])
-    if records is None:
+    normalized = normalize(data, metadata["query"], metadata["fetched_at"])
+    if normalized is None:
         return metadata
-    return {**metadata, "executed": True, "status": "SEARCH_VERIFIED", "returned_count": len(records),
-            "records": records[:limit], "note": "Official search cards, not full JDs or exact keyword matches. Availability unknown."}
+    records, skipped = normalized
+    result = {**metadata, "executed": True, "status": "SEARCH_VERIFIED", "returned_count": len(records),
+              "records": records[:limit],
+              "note": "Official search cards, not full JDs or exact keyword matches. Availability unknown."}
+    if skipped:
+        result["skipped_unsupported_url"] = skipped
+    return result
 
 
 def search(query, location="", limit=10, refresh=False):

@@ -3,7 +3,7 @@
 
 The core accepts a deliberately small JSON document model.  It does not
 interpret Markdown or HTML; resume Markdown is accepted only through the
-strict parser below after its saved hash and revision status are verified.
+strict parser below after source freshness and factual revision checks pass.
 """
 from __future__ import annotations
 
@@ -11,9 +11,12 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import struct
+import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -83,6 +86,67 @@ def _normalise_document(raw):
             s["heading"] or s["paragraphs"] or s["bullets"] or s["table"] for s in result["sections"])):
         _error("INVALID_SCHEMA", "document has no exportable text")
     return result
+
+
+TEMPLATES = {
+    "modern-cn": {"label": "现代中文", "accent": "#176B67", "title": 20, "heading": 12.5,
+                  "section": 10.5, "body": 10.5, "leading": 13.1, "margin": 1.7},
+    "clean": {"label": "简洁无照片", "accent": "#354B5E", "title": 20, "heading": 12.5,
+              "section": 10.5, "body": 10.5, "leading": 13.1, "margin": 1.7},
+}
+
+
+def _renderer_candidates():
+    candidates = []
+    if sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\WINWORD.EXE") as key:
+                candidates.append(("word", Path(winreg.QueryValue(key, None))))
+        except (ImportError, OSError):
+            pass
+    for executable in ("soffice", "libreoffice"):
+        path = shutil.which(executable)
+        if path:
+            candidates.append(("libreoffice", Path(path)))
+            break
+    return candidates
+
+
+def _render_docx_pdf(docx_path, pdf_path, renderer, candidate):
+    name, executable = candidate
+    if name == "libreoffice":
+        subprocess.run([str(executable), "--headless", "--convert-to", "pdf", "--outdir", str(pdf_path.parent),
+                        str(docx_path)], check=True, capture_output=True, timeout=90)
+        generated = pdf_path.parent / (docx_path.stem + ".pdf")
+        if generated != pdf_path and generated.exists():
+            generated.replace(pdf_path)
+        return
+    powershell = shutil.which("pwsh") or shutil.which("powershell") or r"C:\Program Files\PowerShell\7\pwsh.exe"
+    script = ("param([string]$InputPath,[string]$OutputPath)\n$ErrorActionPreference='Stop'\n"
+              "$w=New-Object -ComObject Word.Application\ntry { $w.Visible=$false; $d=$w.Documents.Open($InputPath); "
+              "try { $d.SaveAs($OutputPath,17) } finally { $d.Close(0) } } finally { $w.Quit() }\n")
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".ps1", delete=False) as handle:
+        handle.write(script)
+        script_path = Path(handle.name)
+    try:
+        subprocess.run([powershell, "-NoProfile", "-NonInteractive", "-File", str(script_path),
+                        str(docx_path), str(pdf_path)], check=True, capture_output=True, timeout=90)
+    finally:
+        script_path.unlink(missing_ok=True)
+    if not pdf_path.is_file():
+        _error("RENDERER_FAILED", "Microsoft Word returned without creating a PDF")
+
+
+def _validate_resume_content(document):
+    """Reject obvious unfinished tokens and host-local paths without keyword policing."""
+    import re
+    for value in _all_text(document):
+        if re.search(r"\[[A-Z][A-Z0-9 _-]{1,40}\]|\{\{[^{}]+\}\}|<[^<>]+>", value):
+            _error("RESUME_PLACEHOLDER", "resume contains an unresolved placeholder token")
+        if re.search(r"(?:[A-Za-z]:\\|\\\\[^\\]+\\|/(?:Users|home|mnt|private)/)", value):
+            _error("RESUME_LOCAL_PATH", "resume contains a local filesystem path")
 
 
 _RESUME_HEADINGS = ("个人简介", "相关经历", "教育经历", "实习经历", "工作经历", "项目经历", "自我评价")
@@ -221,7 +285,7 @@ def _vera_path():
 
 
 def _font_candidates():
-    candidates = [_vera_path()]
+    candidates = []
     roots = [Path(os.environ.get("WINDIR", r"C:\\Windows")) / "Fonts", Path("/Library/Fonts"),
              Path("/System/Library/Fonts"), Path("/System/Library/Fonts/Supplemental"),
              Path("/usr/share/fonts/truetype/dejavu"), Path("/usr/share/fonts/truetype/noto"),
@@ -234,6 +298,7 @@ def _font_candidates():
             path = root / name
             if path.is_file():
                 candidates.append(path)
+    candidates.append(_vera_path())
     return [path for path in candidates if path]
 
 
@@ -274,7 +339,7 @@ def _choose_font(text, supplied, *, require_pdf=False):
     _error("FONT_COVERAGE", hint + " " + "; ".join(failures[:3]))
 
 
-def _write_docx(document, stream, font_path, font_family):
+def _write_docx(document, stream, font_path, font_family, template, photo=None):
     try:
         from docx import Document
         from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -286,19 +351,67 @@ def _write_docx(document, stream, font_path, font_family):
     doc = Document()
     section = doc.sections[0]
     section.page_width, section.page_height = Cm(21), Cm(29.7)
-    section.top_margin = section.bottom_margin = Cm(1.7)
+    layout = TEMPLATES[template]
+    section.top_margin = section.bottom_margin = Cm(layout["margin"])
     section.left_margin = section.right_margin = Cm(1.8)
     font_name = font_family
     for style_name in ("Normal", "Title", "Subtitle", "Heading 1", "List Bullet"):
         style = doc.styles[style_name]
         style.font.name, style.font.color.rgb = font_name, RGBColor(0, 0, 0)
         style._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
-    doc.styles["Normal"].font.size = Pt(10.5)
-    doc.styles["Title"].font.size, doc.styles["Heading 1"].font.size = Pt(18), Pt(13)
+    title_style = doc.styles["Title"]
+    title_style.paragraph_format.space_before = Pt(0)
+    title_style.paragraph_format.space_after = Pt(4)
+    title_properties = title_style._element.get_or_add_pPr()
+    title_borders = title_properties.find(qn("w:pBdr"))
+    if title_borders is not None:
+        title_properties.remove(title_borders)
+    doc.styles["Normal"].font.size = Pt(layout["body"])
+    doc.styles["Normal"].paragraph_format.line_spacing = 1.18
+    doc.styles["Normal"].paragraph_format.space_after = Pt(2)
+    accent = RGBColor.from_string(layout["accent"].lstrip("#"))
+    doc.styles["Title"].font.size, doc.styles["Heading 1"].font.size = Pt(layout["title"]), Pt(layout["heading"])
+    doc.styles["Heading 1"].font.color.rgb = accent
     doc.styles["Heading 1"].paragraph_format.keep_with_next = True
+    doc.styles["Heading 1"].paragraph_format.space_before = Pt(9)
+    doc.styles["Heading 1"].paragraph_format.space_after = Pt(3)
+    heading_ppr = doc.styles["Heading 1"]._element.get_or_add_pPr()
+    borders = heading_ppr.find(qn("w:pBdr"))
+    if borders is None:
+        borders = OxmlElement("w:pBdr")
+        heading_ppr.append(borders)
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    bottom.set(qn("w:sz"), "4")
+    bottom.set(qn("w:space"), "2")
+    bottom.set(qn("w:color"), layout["accent"].lstrip("#"))
+    borders.append(bottom)
     if document["title"]:
-        doc.add_paragraph(document["title"], style="Title").alignment = WD_ALIGN_PARAGRAPH.LEFT
-    if document["subtitle"]:
+        if photo:
+            header = doc.add_table(rows=1, cols=2)
+            header.autofit = False
+            header.columns[0].width, header.columns[1].width = Cm(14.8), Cm(2.6)
+            name = header.cell(0, 0).paragraphs[0]
+            name.style = doc.styles["Title"]
+            name.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            name.add_run(document["title"])
+            if document["subtitle"]:
+                header.cell(0, 0).add_paragraph(document["subtitle"], style="Subtitle")
+            photo_para = header.cell(0, 1).paragraphs[0]
+            photo_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            photo_para.add_run().add_picture(str(photo), width=Cm(2.6))
+            tbl_pr = header._tbl.tblPr
+            borders = OxmlElement("w:tblBorders")
+            for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+                border = OxmlElement(f"w:{edge}")
+                border.set(qn("w:val"), "nil")
+                borders.append(border)
+            tbl_pr.append(borders)
+        else:
+            doc.add_paragraph(document["title"], style="Title").alignment = WD_ALIGN_PARAGRAPH.LEFT
+            if document["subtitle"]:
+                doc.add_paragraph(document["subtitle"], style="Subtitle")
+    elif document["subtitle"]:
         doc.add_paragraph(document["subtitle"], style="Subtitle")
     for section_data in document["sections"]:
         if section_data["heading"]:
@@ -328,7 +441,7 @@ def _write_docx(document, stream, font_path, font_family):
     doc.save(stream)
 
 
-def _write_pdf(document, stream, font_path):
+def _write_pdf(document, stream, font_path, template, photo=None):
     try:
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_LEFT
@@ -349,19 +462,34 @@ def _write_pdf(document, stream, font_path):
     except Exception as exc:
         _error("INVALID_FONT", f"ReportLab cannot embed {font_path}: {exc}")
     styles = getSampleStyleSheet()
-    normal = ParagraphStyle("ExportNormal", parent=styles["Normal"], fontName=face, fontSize=10.5,
-                            leading=15, textColor=colors.black, wordWrap="CJK", alignment=TA_LEFT)
-    title = ParagraphStyle("ExportTitle", parent=normal, fontSize=18, leading=24, spaceAfter=7)
-    subtitle = ParagraphStyle("ExportSubtitle", parent=normal, fontSize=11, leading=15, spaceAfter=10)
-    heading = ParagraphStyle("ExportHeading", parent=normal, fontSize=13, leading=18, spaceBefore=10,
-                             spaceAfter=4, keepWithNext=True)
-    table_heading = ParagraphStyle("ExportTableHeading", parent=heading, keepWithNext=False)
+    layout = TEMPLATES[template]
+    normal = ParagraphStyle("ExportNormal", parent=styles["Normal"], fontName=face, fontSize=layout["body"],
+                            leading=layout["leading"], textColor=colors.black, wordWrap="CJK", alignment=TA_LEFT)
+    title = ParagraphStyle("ExportTitle", parent=normal, fontSize=layout["title"], leading=24, spaceAfter=7)
+    subtitle = ParagraphStyle("ExportSubtitle", parent=normal, fontSize=11, leading=14, spaceAfter=5)
+    heading = ParagraphStyle("ExportHeading", parent=normal, fontSize=layout["heading"], leading=15, spaceBefore=8,
+                             spaceAfter=3, textColor=colors.HexColor(layout["accent"]), keepWithNext=True)
     bullet = ParagraphStyle("ExportBullet", parent=normal, leftIndent=14, firstLineIndent=-9, spaceAfter=2)
     def paragraph(value, style=normal):
         return Paragraph(escape(value).replace("\n", "<br/>"), style)
+
+    def section_heading(value):
+        from reportlab.platypus import HRFlowable, KeepTogether
+        return KeepTogether([paragraph(value, heading), HRFlowable(width="100%", thickness=0.45,
+            color=colors.HexColor(layout["accent"]), spaceBefore=0, spaceAfter=3)])
     story = []
     if document["title"]:
-        story.append(paragraph(document["title"], title))
+        if photo:
+            from reportlab.platypus import Image, Table, TableStyle
+            identity = [[paragraph(document["title"], title), Image(str(photo), width=2.6 * cm,
+                                                                     height=3.5 * cm, kind="proportional")]]
+            block = Table(identity, colWidths=[14.6 * cm, 2.8 * cm], hAlign="LEFT")
+            block.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                       ("RIGHTPADDING", (0, 0), (-1, -1), 4), ("TOPPADDING", (0, 0), (-1, -1), 0),
+                                       ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
+            story.append(block)
+        else:
+            story.append(paragraph(document["title"], title))
     if document["subtitle"]:
         story.append(paragraph(document["subtitle"], subtitle))
     for section_data in document["sections"]:
@@ -374,9 +502,9 @@ def _write_pdf(document, stream, font_path):
                 # next page.  Reserve enough room for its heading, header and
                 # roughly two ordinary rows; otherwise start a fresh page.
                 story.append(CondPageBreak(64))
-                story.append(paragraph(section_data["heading"], table_heading))
+                story.append(section_heading(section_data["heading"]))
             else:
-                story.append(paragraph(section_data["heading"], heading))
+                story.append(section_heading(section_data["heading"]))
         story.extend(paragraph(value) for value in section_data["paragraphs"])
         story.extend(Paragraph("• " + escape(value).replace("\n", "<br/>"), bullet) for value in section_data["bullets"])
         if table_data:
@@ -389,9 +517,9 @@ def _write_pdf(document, stream, font_path):
                                        ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
                                        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
             story.append(table)
-        story.append(Spacer(1, 4))
+        story.append(Spacer(1, 1))
     SimpleDocTemplate(stream, pagesize=A4, leftMargin=1.8 * cm, rightMargin=1.8 * cm,
-                      topMargin=1.7 * cm, bottomMargin=1.7 * cm).build(story)
+                      topMargin=layout["margin"] * cm, bottomMargin=layout["margin"] * cm).build(story)
 
 
 def _parse_resume_markdown(content):
@@ -477,6 +605,7 @@ def _load_resume(resume_id):
     except UnicodeDecodeError as exc:
         _error("UNSUPPORTED_RESUME", f"saved resume is not UTF-8 Markdown: {exc}")
     document, footer = _parse_resume_markdown(content)
+    _validate_resume_content(document)
     return document, {"resume_id": rid, "job_id": resume["job_id"], "omitted_internal_footer": footer}
 
 
@@ -491,7 +620,8 @@ def probe():
     return {"status": "OK", "dependencies": availability, "network": False, "writes": False}
 
 
-def export_document(*, document=None, resume_id=None, output_dir, formats=("docx", "pdf"), font=None):
+def export_document(*, document=None, resume_id=None, output_dir, formats=("docx", "pdf"), font=None,
+                    template="clean", photo=None, renderer="auto", page_policy="a4-1-2"):
     """Export one normalised document into a brand-new directory and return its manifest."""
     if (document is None) == (resume_id is None):
         _error("INVALID_ARGUMENTS", "provide exactly one of document or resume_id")
@@ -500,6 +630,21 @@ def export_document(*, document=None, resume_id=None, output_dir, formats=("docx
     formats = tuple(formats)
     if not formats or set(formats) - {"docx", "pdf"} or len(set(formats)) != len(formats):
         _error("INVALID_ARGUMENTS", "formats must be a unique subset of docx,pdf")
+    if template not in TEMPLATES or renderer not in {"auto", "reportlab", "libreoffice", "word"} or page_policy not in {"a4-1-2", "a4-1"}:
+        _error("INVALID_ARGUMENTS", "invalid template, renderer or page policy")
+    photo_path = Path(photo).expanduser() if photo else None
+    if photo_path and (template != "modern-cn" or not photo_path.is_file()):
+        _error("INVALID_PHOTO", "photo requires modern-cn and an existing image file")
+    candidates = dict(_renderer_candidates())
+    native_renderer = None
+    if renderer in {"word", "libreoffice"}:
+        if renderer not in candidates:
+            _error("RENDERER_UNAVAILABLE", f"{renderer} is not installed or discoverable")
+        native_renderer = (renderer, candidates[renderer])
+    elif renderer == "auto" and "docx" in formats and "pdf" in formats:
+        native_renderer = next(((name, path) for name, path in _renderer_candidates()), None)
+    if renderer in {"word", "libreoffice"} and not {"docx", "pdf"}.issubset(formats):
+        _error("INVALID_ARGUMENTS", "Word and LibreOffice rendering require both docx and pdf formats")
     if resume_id is not None:
         normalized, source = _load_resume(resume_id)
     else:
@@ -509,12 +654,15 @@ def export_document(*, document=None, resume_id=None, output_dir, formats=("docx
                    "a resume must be exported from its registered resume ID; structured input is for "
                    "plans, notes and reports")
         source = {"input": "structured"}
+    if resume_id is not None:
+        _validate_resume_content(normalized)
     output = Path(output_dir).expanduser()
     if output.exists():
         _error("OUTPUT_COLLISION", f"output directory already exists: {output}")
     if not output.parent.is_dir():
         _error("INVALID_OUTPUT", f"parent directory does not exist: {output.parent}")
-    chosen_font = _choose_font(_all_text(normalized), font, require_pdf="pdf" in formats)
+    chosen_font = _choose_font(_all_text(normalized), font,
+                               require_pdf="pdf" in formats and (renderer == "reportlab" or native_renderer is None))
     family = _font_family(chosen_font)
     created = []
     owns_output_dir = False
@@ -529,20 +677,52 @@ def export_document(*, document=None, resume_id=None, output_dir, formats=("docx
             try:
                 with target.open("xb") as stream:
                     created.append(target)
-                    _write_docx(normalized, stream, chosen_font, family)
+                    _write_docx(normalized, stream, chosen_font, family, template, photo_path)
             except FileExistsError:
                 _error("OUTPUT_COLLISION", f"output file already exists: {target}")
         if "pdf" in formats:
             target = output / "document.pdf"
+            active_renderer = "ReportLab"
+            render_error = ""
+            if native_renderer:
+                try:
+                    with tempfile.TemporaryDirectory(prefix="oriward-render-", dir=output) as scratch:
+                        staged = Path(scratch) / "document.pdf"
+                        _render_docx_pdf(output / "document.docx", staged, renderer, native_renderer)
+                        with target.open("xb") as stream:
+                            stream.write(staged.read_bytes())
+                        created.append(target)
+                    active_renderer = "Microsoft Word" if native_renderer[0] == "word" else "LibreOffice"
+                except (OSError, subprocess.SubprocessError, ExportError) as exc:
+                    if renderer != "auto":
+                        raise ExportError(f"RENDERER_FAILED: {native_renderer[0]} could not render DOCX: {exc}") from exc
+                    render_error = "preferred renderer failed; used ReportLab"
+                    chosen_font = _choose_font(_all_text(normalized), font, require_pdf=True)
+            if active_renderer == "ReportLab":
+                try:
+                    with target.open("xb") as stream:
+                        created.append(target)
+                        _write_pdf(normalized, stream, chosen_font, template, photo_path)
+                except FileExistsError:
+                    _error("OUTPUT_COLLISION", f"output file already exists: {target}")
+            renderer_details = {"pdf": active_renderer,
+                                "docx": "python-docx" if "docx" in formats else None}
+            if render_error:
+                renderer_details["fallback_reason"] = render_error[:300]
+        if "pdf" in formats and resume_id is not None:
             try:
-                with target.open("xb") as stream:
-                    created.append(target)
-                    _write_pdf(normalized, stream, chosen_font)
-            except FileExistsError:
-                _error("OUTPUT_COLLISION", f"output file already exists: {target}")
+                from pypdf import PdfReader
+                page_count = len(PdfReader(str(output / "document.pdf")).pages)
+            except ImportError as exc:
+                _error("MISSING_DEPENDENCY", "PDF page policy check needs pypdf: " + str(exc))
+            limit = 1 if page_policy == "a4-1" else 2
+            if page_count > limit:
+                _error("PAGE_POLICY", f"export has {page_count} pages; {page_policy} allows at most {limit}")
         manifest = {"status": "GENERATED_PENDING_VISUAL_REVIEW",
                     "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                    "source": source, "formats": list(formats),
+                    "source": source, "formats": list(formats), "template": template,
+                    "renderer": renderer_details if "pdf" in formats else {"docx": "python-docx"},
+                    "page_policy": page_policy, "photo_included": bool(photo_path),
                     "font": {"family": family, "pdf_embedded": "pdf" in formats, "docx_embedded": False},
                     "files": {path.name: {"bytes": path.stat().st_size} for path in created},
                     "layout_note": "DOCX and PDF were independently laid out from the same normalized content; visual review remains required."}
@@ -573,11 +753,15 @@ def main(argv=None):
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--formats", default="docx,pdf")
     parser.add_argument("--font")
+    parser.add_argument("--template", choices=sorted(TEMPLATES), default="clean")
+    parser.add_argument("--photo", type=Path)
+    parser.add_argument("--renderer", choices=("auto", "reportlab", "libreoffice", "word"), default="auto")
+    parser.add_argument("--page-policy", choices=("a4-1-2", "a4-1"), default="a4-1-2")
     parser.add_argument("--probe", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.probe:
-            if any((args.input, args.resume_id, args.output_dir, args.font)) or args.formats != "docx,pdf":
+            if any((args.input, args.resume_id, args.output_dir, args.font, args.photo)) or args.formats != "docx,pdf" or args.renderer != "auto":
                 _error("INVALID_ARGUMENTS", "--probe cannot be combined with export options")
             result = probe()
         else:
@@ -592,7 +776,8 @@ def main(argv=None):
                 except (OSError, json.JSONDecodeError) as exc:
                     _error("INVALID_INPUT", f"cannot read JSON input: {exc}")
             result = export_document(document=document, resume_id=args.resume_id, output_dir=args.output_dir,
-                                     formats=args.formats, font=args.font)
+                                     formats=args.formats, font=args.font, template=args.template, photo=args.photo,
+                                     renderer=args.renderer, page_policy=args.page_policy)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except ExportError as exc:

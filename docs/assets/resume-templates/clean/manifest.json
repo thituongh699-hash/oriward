@@ -1,0 +1,8 @@
+{
+  "fictional": true,
+  "template": "clean",
+  "photo_included": false,
+  "synthetic_portrait": false,
+  "renderer": "Microsoft Word",
+  "source": "scripts/generate_template_samples.py"
+}
