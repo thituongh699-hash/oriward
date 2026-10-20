@@ -356,6 +356,16 @@ def _seed_goal_history(conn):
                                   "schema v4 升级时的目标基线；更早版本未知", _now()))
 
 
+def _resume_artifacts(conn):
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(resumes)")}
+    if "job_version" not in columns:
+        conn.execute("ALTER TABLE resumes ADD COLUMN job_version INTEGER NOT NULL DEFAULT 0")
+    if "artifact_state" not in columns:
+        conn.execute("ALTER TABLE resumes ADD COLUMN artifact_state TEXT NOT NULL DEFAULT 'available'")
+    conn.execute("UPDATE resumes SET job_version=(SELECT COUNT(*) FROM resumes r "
+                 "WHERE r.job_id=resumes.job_id AND r.id<=resumes.id) WHERE job_version=0")
+
+
 MIGRATIONS = [
     {"version": 1, "name": "baseline_v0_1", "sql": BASELINE, "post": None},
     {"version": 2, "name": "career_twin_core", "sql": CORE_SQL, "post": add_missing_columns},
@@ -363,6 +373,7 @@ MIGRATIONS = [
     {"version": 3, "name": "goal_job_action_link", "sql": "SELECT 1;", "post": add_missing_columns},
     {"version": 4, "name": "decision_and_goal_history", "sql": DECISION_SQL, "post": _seed_goal_history},
     {"version": 5, "name": "experience_library_and_search_runs", "sql": LIBRARY_SQL, "post": None},
+    {"version": 6, "name": "resume_artifact_retention", "sql": "SELECT 1;", "post": _resume_artifacts},
 ]
 
 

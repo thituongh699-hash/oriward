@@ -5,6 +5,8 @@ observation, not evidence that a route is generally supported or currently usabl
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from .db import connect, deserialize, now, serialize
 from .services import ValidationError
 
@@ -29,10 +31,14 @@ def _strings(value, name):
 def _load(conn):
     row = conn.execute("SELECT data FROM career_settings WHERE key='onboarding'").fetchone()
     if row:
-        return deserialize(row["data"])
+        state = deserialize(row["data"])
+        state.setdefault("history_intake", {"answer": "unasked", "scope": []})
+        state.setdefault("scheduled_search", "unasked")
+        return state
     return {"version": 1, "intent": "experience_index", "companies": [], "roles": [],
             "constraints": {}, "prompts": {}, "channels": {}, "preference_sources": {}, "current_topic": None,
-            "paused_branches": [], "next_branch_id": 1}
+            "paused_branches": [], "next_branch_id": 1, "history_intake": {"answer": "unasked", "scope": []},
+            "scheduled_search": "unasked"}
 
 
 def _save(conn, state):
@@ -168,6 +174,13 @@ def missing_prompts(*, before_search=False):
     if not channel_answered and value["prompts"].get("channels", "unasked") == "unasked":
         prompts.append({"field": "channels", "question": "是否现在配置并验证猎聘等可用渠道，或稍后接入、先用公开渠道和已有链接？",
                         "stage": "before_search" if before_search else "first_use"})
+    intake = value.get("history_intake", {"answer": "unasked", "scope": []})
+    if intake.get("answer", "unasked") == "unasked":
+        prompts.append({"field": "history_intake", "question": "是否允许读取你指定的 Agent 对话/导出文件？可授权指定范围、稍后或拒绝；未授权前不会读取。",
+                        "choices": ["allow", "later", "decline"]})
+    if _scheduled_search_ready(value) and value.get("scheduled_search", "unasked") == "unasked":
+        prompts.append({"field": "scheduled_search", "question": "经历索引和城市约束已可用。是否安排周期性岗位搜索？可选现在、稍后或不需要。",
+                        "choices": ["now", "later", "no"]})
     return {"prompts": prompts, "known": {key: value[key] for key in ("intent", "companies", "roles", "constraints", "channels")},
             "default_next_step": "lightweight_experience_index", "blocks_search": False}
 
@@ -229,4 +242,49 @@ def resume_topic(branch_id):
 def continuation():
     value = status()
     return {key: value[key] for key in ("intent", "companies", "roles", "constraints", "channels",
-                                       "current_topic", "paused_branches")}
+                                       "current_topic", "paused_branches", "history_intake", "scheduled_search")}
+
+
+def set_history_intake(answer, *, scope=None):
+    """Record permission for later host-side reads; this function never opens files."""
+    if answer not in {"allow", "later", "decline"}:
+        raise ValidationError("history intake answer must be allow, later, or decline")
+    scope = _strings(scope or [], "scope")
+    if answer == "allow" and not scope:
+        raise ValidationError("allow requires one or more explicit scope source paths")
+    scope = [str(Path(item).expanduser().resolve()) for item in scope]
+    with connect() as conn:
+        state = _load(conn)
+        state["history_intake"] = {"answer": answer, "scope": scope if answer == "allow" else [],
+                                   "answered_at": now()}
+        _save(conn, state)
+    return state["history_intake"]
+
+
+def _scheduled_search_ready(state):
+    from .experience_library import list_current
+    try:
+        has_library = bool(list_current())
+    except Exception:
+        has_library = False
+    constraints = state.get("constraints", {})
+    has_location = any(key in constraints and constraints[key] for key in ("location", "target_locations", "city"))
+    return has_library and has_location
+
+
+def set_scheduled_search(answer):
+    if answer not in {"now", "later", "no"}:
+        raise ValidationError("scheduled search answer must be now, later, or no")
+    with connect() as conn:
+        state = _load(conn)
+        state["scheduled_search"] = answer
+        state["scheduled_search_answered_at"] = now()
+        _save(conn, state)
+    # Host task is a reusable request only; no automation is created here.
+    return {"answer": answer, "host_task": {
+        "requested": answer == "now", "max_new_tailored_resumes_per_day": 3,
+        "create_automation": False,
+        "reusable_task": ("Use the saved experience library and confirmed city/availability constraints to run a sourced job search; "
+                          "report channels, failures and retrieval dates, shortlist evidence-fit roles, and prepare at most three new tailored "
+                          "resume drafts per day for local review. Never submit applications or claim unconfirmed facts. Stay quiet while results "
+                          "are unchanged; report only new matches, material changes, failures or required user action.") if answer == "now" else None}}

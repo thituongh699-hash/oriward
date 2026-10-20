@@ -98,6 +98,50 @@ class LiepinTests(unittest.TestCase):
     def test_redirect_is_rejected(self):
         self.assertIsNone(liepin.NoRedirect().redirect_request(None, None, 302, "", {}, "https://elsewhere.invalid"))
 
+    @staticmethod
+    def _card(name, url, company="某公司"):
+        return {"jobName": name, "company": company, "jobDetailUrl": url, "location": "苏州-工业园区",
+                "salary": "4-5k", "education": "本科", "workYears": "经验不限", "industry": "互联网"}
+
+    def _run(self, query, cards):
+        body = json.dumps({"code": 0, "data": {"list": cards}}).encode()
+        with patch.object(liepin, "build_opener") as opener:
+            opener.return_value.open.return_value = Response(body)
+            return liepin.search(query, "苏州", refresh=True)
+
+    def test_unsupported_detail_url_is_skipped_instead_of_voiding_the_page(self):
+        # A social-hire /a/ card used to make normalize() return None, discarding
+        # every valid row on the same page. It is now counted and skipped.
+        result = self._run("运营实习生", [
+            self._card("新媒体运营实习生", "https://www.liepin.com/job/1985339817.shtml?mscid=soai_pc_001"),
+            self._card("猎头顾问实习生", "https://www.liepin.com/a/80275619.shtml?mscid=soai_pc_001"),
+        ])
+        self.assertEqual(result["status"], "SEARCH_VERIFIED")
+        self.assertTrue(result["executed"])
+        self.assertEqual(result["returned_count"], 1)
+        self.assertEqual(result["skipped_unsupported_url"], 1)
+        self.assertEqual(result["records"][0]["url"], "https://www.liepin.com/job/1985339817.shtml")
+
+    def test_page_with_only_unsupported_urls_is_not_a_verified_empty_result(self):
+        result = self._run("项目管理实习生", [
+            self._card("项目管理实习生", "https://www.liepin.com/a/79529233.shtml"),
+        ])
+        self.assertEqual(result["status"], "RESPONSE_REQUIRES_VALIDATION")
+        self.assertFalse(result["executed"])
+        self.assertEqual(result["imported"], 0)
+        self.assertNotIn("records", result)
+
+    def test_untrusted_host_still_rejects_the_whole_page(self):
+        # Skipping is only for URL *shape*; an off-domain link means the payload
+        # is not what this adapter claims to read, so nothing is imported.
+        result = self._run("数据分析实习生", [
+            self._card("数据分析实习生", "https://www.liepin.com/job/1983889857.shtml"),
+            self._card("可疑岗位", "https://evil.example/job/1.shtml"),
+        ])
+        self.assertEqual(result["status"], "RESPONSE_REQUIRES_VALIDATION")
+        self.assertFalse(result["executed"])
+        self.assertEqual(result["imported"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

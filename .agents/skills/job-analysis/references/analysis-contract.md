@@ -25,7 +25,7 @@ Run `analysis save --file <json>` and inspect a fresh packet. The CLI computes/n
 
 ## Red review
 
-Get `review packet --resume-id <id> --compact`; create structured analysis first if `analysis_id` is null. Review only the frozen exact resume, job, analysis and dossier. Prior findings/actions remain available for comparison.
+Get `review packet --resume-id <id> --compact`; create structured analysis first if `analysis_id` is null. Read the current content of that resume ID, job, analysis and dossier. Prior findings/actions remain available for comparison.
 
 Cover `ats`, `hr`, `hiring_manager`, `technical`, `pressure`, `background`, `competition`. Each stage needs `verdict:pass|risk|fail|unknown`, nonempty rationale, questions and requirement IDs; together they must cover every requirement.
 
@@ -37,7 +37,7 @@ A blocker only produces a veto when linked to a known requirement `gap`, or mark
 
 ## Blue response and re-review
 
-Map every finding to `wording|practice|evidence|retarget`. Wording clarifies existing facts; it cannot cure structural deficits or hard gates. Save with `review save --file <json>` and inspect `review list [--resume-id <id>]`. The CLI rejects supplied grade/status/reasons and validates exact resume/job hashes.
+Map every finding to `wording|practice|evidence|retarget`. Wording clarifies existing facts; it cannot cure structural deficits or hard gates. Save with `review save --file <json>` and inspect `review list [--resume-id <id>]`. The CLI rejects supplied grade/status/reasons and validates current sources and the JD fingerprint. No resume hash is required; legacy supplied hashes are ignored.
 
 After evidence or a resume changes, obtain a fresh packet and conduct an independent review. Omit an old finding only when the new evidence/version removes it. A revision inherits no grade. Stop after two red/blue rounds without new evidence; retain unresolved gaps and route substantive work to practice, evidence or retargeting.
 

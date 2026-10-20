@@ -542,7 +542,6 @@ def _review_template(resume_id, analysis_id, resume_sha256):
     return {
         "resume_id": int(resume_id),
         "analysis_id": int(analysis_id) if analysis_id is not None else None,
-        "resume_sha256": resume_sha256,
         "stages": {
             stage: {"verdict": "unknown", "rationale": "Evidence review pending.", "questions": [], "requirement_ids": []}
             for stage in STAGES
@@ -838,7 +837,7 @@ def save_review(data):
     forbidden = {"grade", "status", "reasons"} & set(data)
     if forbidden:
         raise services.ValidationError(f"Review result fields are computed, not accepted: {sorted(forbidden)}")
-    for key in ("resume_id", "analysis_id", "resume_sha256", "stages"):
+    for key in ("resume_id", "analysis_id", "stages"):
         if key not in data:
             raise services.ValidationError(f"Missing required field: {key}")
     try:
@@ -854,9 +853,6 @@ def save_review(data):
         resume_data = dict(resume)
         path = services.verify_resume(resume_data)
         actual_resume_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
-        supplied_resume_sha256 = _nonempty_string(data["resume_sha256"], "resume_sha256")
-        if supplied_resume_sha256 != resume["sha256"] or actual_resume_sha256 != supplied_resume_sha256:
-            raise services.ValidationError("Review resume hash is stale or does not match the exact saved file")
 
         analysis_row, analysis = _load_analysis(db, data["analysis_id"])
         if analysis_row["job_id"] != resume["job_id"] or analysis["job_id"] != resume["job_id"]:

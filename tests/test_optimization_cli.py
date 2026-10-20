@@ -35,13 +35,14 @@ class OptimizationCliTests(unittest.TestCase):
         return json.loads(output.getvalue()), output.getvalue().rstrip("\n")
 
     def test_first_use_continuation_and_selective_output_are_real_cli_contracts(self):
-        self.assertEqual(self.run_cli("init")[0]["schema_version"], 5)
+        self.assertEqual(self.run_cli("init")[0]["schema_version"], 6)
         initial = self.run_cli("onboarding", "missing")[0]
         self.assertEqual(initial["default_next_step"], "lightweight_experience_index")
         self.assertIn("companies", [q["field"] for q in initial["prompts"]])
         self.run_cli("onboarding", "preferences", "--file", self.file({
             "companies": [], "roles": [], "constraints": {}, "intent": "experience_index"}))
         self.run_cli("onboarding", "channel-intent", "--provider", "liepin", "--preference", "later")
+        self.run_cli("intake", "history-consent", "--answer", "later")
         self.assertEqual(self.run_cli("onboarding", "missing", "--before-search")[0]["prompts"], [])
         first = self.run_cli("onboarding", "topic", "--title", "课程项目", "--next-action", "补充本人动作")[0]
         current = self.run_cli("onboarding", "topic", "--title", "研究任务", "--next-action", "说明分析过程")[0]
@@ -93,6 +94,26 @@ class OptimizationCliTests(unittest.TestCase):
         self.assertIn("2026-10-21", report)
         self.assertNotIn("PRIVATE_DETAILS_NOT_COPIED", report)
         self.assertIsNone(receipt["counts"]["leads"])
+
+    def test_new_pipeline_cli_requires_actual_rounds_and_honest_partial_finish(self):
+        registry = self.run_cli("jobs", "channels")[0]
+        self.assertTrue({"boss", "shixiseng", "nowcoder", "gaodun"} <= {r["id"] for r in registry})
+        planned = self.run_cli("search-run", "plan", "--file", self.file({
+            "scope": {"query": "数据分析", "cities": ["虚构市"]}, "planned_channels": ["zhiye"],
+            "output_dir": str(self.root / "reports")}))[0]
+        rid = planned["run_id"]
+        self.assertEqual(self.run_cli("search-run", "next", "--id", rid)[0]["stage"], "coverage")
+        for stage, query in (("coverage", "数据分析"), ("expansion", "统计报告"), ("expansion", "运营数据工具")):
+            self.run_cli("search-run", "record", "--id", rid, "--file", self.file({
+                "provider": "zhiye", "status": "zero_results", "attempted": True, "query": query,
+                "stage": stage, "reason": "虚构页面已明确展示当前查询无结果"}))
+        self.assertEqual(self.run_cli("search-run", "next", "--id", rid)[0]["stage"], "company_catalogue")
+        with self.assertRaisesRegex(ValueError, "partial finish"):
+            self.run_cli("search-run", "finish", "--id", rid)
+        out = self.run_cli("search-run", "finish", "--id", rid, "--file", self.file({
+            "partial": True, "reason": "本轮尚未完成公司职位目录"}))[0]
+        self.assertTrue(Path(out["report_path"]).resolve().is_relative_to((self.root / "reports").resolve()))
+        self.assertIn("部分完成", Path(out["report_path"]).read_text(encoding="utf-8"))
 
     def test_search_errors_and_disabled_routes_also_return_report_paths(self):
         with patch.dict(os.environ, {"ORIWARD_ENABLE_LIEPIN": "0"}):

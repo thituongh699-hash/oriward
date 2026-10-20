@@ -16,7 +16,8 @@ python -m oriward jobs search --provider liepin --query "产品经理" --locatio
 | `AUTH_REQUIRED` | 缺凭证或 HTTP 401/403；需用户处理授权，不算搜索成功 |
 | `REQUEST_FAILED` 或校验异常 | 请求/内容失败，未导入岗位；不打印可能回显凭证的远端错误正文 |
 | `RESPONSE_REQUIRES_VALIDATION` | 收到 JSON，但业务状态或结构不符合适配器；保留本地响应路径，不猜字段/URL，不算成功结果 |
-| `SEARCH_VERIFIED` | normalize 已确认 `code=0`、data.list 与条目字段/猎聘岗位 URL 结构；records 是搜索卡片，不是完整 JD、精确关键词匹配或岗位开放证明 |
+| `SEARCH_VERIFIED` | normalize 已确认 `code=0`、data.list 与条目字段/猎聘岗位 URL 结构；详情链接路径不是 `/job/*.shtml` 的行（如社招 `/a/*`）会被跳过并计入 `skipped_unsupported_url`，链接不被改写；records 是搜索卡片，不是完整 JD、精确关键词匹配或岗位开放证明 |
+| `RESPONSE_REQUIRES_VALIDATION`（整页无可用行） | 返回了 JSON 但每条链接形态都不受支持，或域名/字段不可信；此时不导入、也不记为已验证的零结果 |
 
 CLI 将验证后的卡片写入 search_leads，返回 `leads` 与导入数量；取得有来源的完整 JD 后才可提升为 jobs，按 [岗位导入契约](../.agents/skills/job-search/references/job-import-contract.md) 执行。`returned_count` 是首个响应页的规范化数量，返回线索受本地 limit 截取；不表示网站全部结果。
 

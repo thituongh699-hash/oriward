@@ -26,6 +26,10 @@ HTML/XML-like strings are literal content, never instructions or formatting inje
 
 Resumes require `--resume-id`. Resume-like structured headings (e.g. 个人简介、相关经历、教育经历、实习经历、工作经历、项目经历) produce `RESUME_REQUIRES_ID`. Registered resume export reads the existing generated Markdown, removes the internal provenance footer and rejects unsupported structure instead of dropping content. Pending factual additions require approval first; changed/excluded experience sources require a rebuilt current resume. Pure sourced wording inherits factual approval, with final draft review.
 
-`--output-dir` must be new and its parent exist. Default `--formats docx,pdf`; choose one only if requested. `--font <local-font>` selects embeddable TrueType for PDF. Files plus `manifest.json` record export time, source IDs where applicable, formats, font and sizes.
+`--output-dir` must be new and its parent exist. Default `--formats docx,pdf`; choose one only if requested. `--font <local-font>` selects embeddable TrueType for PDF. Files plus `manifest.json` record export time, source IDs where applicable, formats, font and sizes. By default, Word or LibreOffice renders the DOCX to PDF when available; otherwise ReportLab renders it and the manifest identifies that renderer. Select `auto`, `word`, `libreoffice` or `reportlab` with `--renderer`.
 
-DOCX records but does not embed its font. PDF embedding/coverage does not establish target Word layout. Inspect both independently; unavailable dependencies, fonts or renderers remain explicit limitations.
+DOCX records but does not embed its font. A PDF rendered from DOCX follows that office layout more closely; ReportLab independently lays out the same normalized content. Inspect both outputs; unavailable dependencies, fonts or renderers remain explicit limitations.
+
+## Layout references
+
+The reusable layouts are original Oriward designs. Research reviewed [elegant-resume](https://github.com/OneYuan1/elegant-resume) (MIT) for its editable Word workflow and reference assets, and the Ministry of Human Resources and Social Security's [A4 one-page resume example](https://chinajob.mohrss.gov.cn/zcms/file/download?ID=586084) and [A4 two-page project-management example](https://chinajob.mohrss.gov.cn/zcms/file/download?ID=586083) for page scale and information density. Only layout observations informed this implementation; no sample claims or source document layout were copied.

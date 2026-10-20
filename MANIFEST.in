@@ -3,6 +3,7 @@ include .gitignore .gitattributes
 recursive-include .agents *.md *.py
 recursive-include docs *.md
 recursive-include docs/assets *.png
+recursive-include docs/assets *.docx *.pdf *.json
 recursive-include scripts *.py *.ps1 *.sh *.mjs
 recursive-include tests *.py
 recursive-include data/examples *.json *.csv

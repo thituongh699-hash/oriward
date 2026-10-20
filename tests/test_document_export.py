@@ -107,6 +107,10 @@ class DocumentExportTests(unittest.TestCase):
             job = sources.import_records([{ "source": "fixture", "source_id": "real-export", "title": "Analyst", "company": "Fixture",
                 "description": "Test", "availability": "listed", "url": "https://example.invalid/real-export"}])["job_ids"][0]
             resume = s.build_resume(job, experience_ids, headline="Target role")
+            resume_path = Path(resume["path"])
+            original = resume_path.read_text(encoding="utf-8")
+            resume_path.write_text(original.replace("### First project", "### First project\n\n- Edited locally after factual approval"),
+                                    encoding="utf-8")
             # Generated resumes have Chinese section labels even with English
             # fixture facts. A host without an embeddable CJK font must report
             # that limitation rather than be marked as a broken DOCX backend.
@@ -125,10 +129,12 @@ class DocumentExportTests(unittest.TestCase):
         self.assertTrue(manifest["exported_at"])
         docx_text = "\n".join(p.text for p in docx.Document(output / "document.docx").paragraphs)
         pdf_text = "\n".join(page.extract_text() or "" for page in PdfReader(output / "document.pdf").pages)
-        for expected in ("Verified profile summary", "申请方向：Target role", "First project", "Built first report", "Second project", "Built second report"):
+        for expected in ("Verified profile summary", "申请方向：Target role", "First project", "Edited locally after factual approval",
+                         "Built first report", "Second project", "Built second report"):
             self.assertIn(expected, docx_text)
         for text in (docx_text, pdf_text):
-            for expected in ("Verified profile summary", "申请方向：Target role", "First project", "Built first report", "Second project", "Built second report"):
+            for expected in ("Verified profile summary", "申请方向：Target role", "First project", "Edited locally after factual approval",
+                             "Built first report", "Second project", "Built second report"):
                 self.assertIn(expected, text)
             self.assertLess(text.index("First project"), text.index("Built first report"))
             self.assertLess(text.index("Built first report"), text.index("Second project"))

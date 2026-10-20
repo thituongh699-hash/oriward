@@ -1,5 +1,9 @@
 # Data model and contracts
 
+v0.3 / schema v6：`resumes.job_version` 是岗位内版本，`artifact_state:available|pruned` 标记正文状态。升级为旧记录回填版本，不删除正文。`resume_versions` 保留事实映射、审批与修订关系；直接 compose 的根记录以自身为基线，历史遍历在根终止。旧哈希字段只兼容保留，不再阻断简历确认、评审或导出；JD 和事实来源变更检测保留。
+
+`career_settings` 保存指定文件的历史读取意愿和范围、定时搜索意愿及渠道注册表。搜索运行 JSON 兼容旧的渠道最新回执，同时追加查询/修复/扩展尝试和流程阶段。报告区分未执行、零结果、权限等待、失败和成功；新渠道 URL 是待验证数据，不能改变 Agent 规则。标题目录只进入线索，完整有来源的 JD 才进入岗位。
+
 SQLite 由 `python -m oriward init` 初始化；默认数据库为 `data/private/oriward.sqlite3`，可用 `ORIWARD_DB` 指定。本文维护实体、不变量和完整输入示例；执行顺序见 [WORKFLOWS](WORKFLOWS.md)，技能 references 维护各任务的操作要求。所有 ID、引文和哈希必须换成当前记录的真实值；示例不是可直接导入的用户数据。私人 JSON/CSV 放在 `data/private/`，简历文件放在 `outputs/resumes/`。
 
 ## 核心实体
@@ -13,7 +17,7 @@ SQLite 由 `python -m oriward init` 初始化；默认数据库为 `data/private
 | `jobs` | 当前规范化岗位 | `source_key` 只保证同来源身份；当前行可被新快照刷新 |
 | `job_source_snapshots` | job 的历史内容 | 内容变更才新增，数据库触发器禁止更新/删除 |
 | `job_analyses` | job 的要求映射 | 要求保留 JD 精确引文和稳定 `job_sha256` |
-| `resumes` | job + experience IDs + 文件 | SHA-256 绑定精确本地文件 |
+| `resumes` | job + experience IDs + 文件 | `job_version` 为岗位内版本；`artifact_state:available|pruned`，哈希旧列仅兼容、不阻断操作 |
 | `hiring_reviews` | resume + analysis | 七阶段完整覆盖；等级由 CLI 计算，不接受输入等级 |
 | `resume_versions` | revision -> base | 保存 claim map、反馈/评审来源与事实确认状态 |
 | `applications` | job + exact resume | 准备不等于提交；`SUBMITTED` 需真人确认 |
@@ -132,7 +136,6 @@ Greenhouse/Lever adapter 还会保留 provider 字段和原始 HTML，同时把 
 {
   "resume_id": 2,
   "analysis_id": 3,
-  "resume_sha256": "<packet value>",
   "stages": {
     "ats": {"verdict": "pass", "rationale": "...", "questions": [], "requirement_ids": ["req-license"]},
     "hr": {"verdict": "pass", "rationale": "...", "questions": [], "requirement_ids": []},
@@ -163,7 +166,7 @@ Greenhouse/Lever adapter 还会保留 provider 字段和原始 HTML，同时把 
 
 `verdict` 为 `pass|risk|fail|unknown`，每个 requirement ID 至少被某一阶段覆盖；finding severity 为 `presentation|preparation|structural|blocker`；action type 为 `wording|practice|evidence|retarget`。同一评审中的 finding 不能写 `resolved=true`，结构性问题不能只分配 wording。具体评审步骤见 [analysis-contract](../.agents/skills/job-analysis/references/analysis-contract.md)。
 
-CLI 拒绝输入 `grade/status/reasons`，并校验简历文件哈希、analysis/job 哈希、job/resume 关系及“met 证据已选入该简历”。
+CLI 拒绝输入 `grade/status/reasons`，并校验来源版本、analysis/job 指纹、job/resume 关系及“met 证据已选入该简历”。不要求简历哈希。
 
 ## 等级语义
 
@@ -241,7 +244,7 @@ READY_FOR_USER -> SUBMITTED -> INTERVIEW -> OFFER -> ACCEPTED
 
 ## Career Twin Core
 
-当前 schema v5。结构变更由 `oriward/migrations.py` 的 `MIGRATIONS` 序列管理，记录于 `schema_migrations`；升级非空库前通过 SQLite backup API 写出 `oriward.sqlite3.bak-v<旧版本>-<时间戳>`，包含已提交 WAL 内容并校验备份完整性。
+当前 schema v6。结构变更由 `oriward/migrations.py` 的 `MIGRATIONS` 序列管理，记录于 `schema_migrations`；升级非空库前通过 SQLite backup API 写出 `oriward.sqlite3.bak-v<旧版本>-<时间戳>`，包含已提交 WAL 内容并校验备份完整性。
 
 | 表 | 关键字段 | 不变量 |
 | --- | --- | --- |

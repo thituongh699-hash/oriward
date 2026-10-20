@@ -11,8 +11,11 @@
 | 前程无忧、国家大学生就业服务平台、中国公共招聘网 | 渠道目录、搜索计划、授权导入 | 没有交付本地直接搜索接口；计划不算搜索结果 | 是 |
 | 职友集 | 公司/岗位发现与授权导入 | 开放收录 XML 不是职位读取 API | 否 |
 | Careerjet 中国 | 目录与 API 配置提示 | 项目未交付适配器，不能把 API key 提示说成已接通 | 否 |
+| 实习僧、牛客招聘、高顿招聘 | 可作为待验证目录路线 | 目录登记不代表适配器、搜索访问或账号已连接；必须记录真实来源尝试 | 视真实申请渠道而定 |
 
 完整导入字段与浏览器证据分别见 [job-import-contract](../.agents/skills/job-search/references/job-import-contract.md)、[browser-search](../.agents/skills/job-search/references/browser-search.md)。公开 Greenhouse/Lever board 同步另见 [WORKFLOWS](WORKFLOWS.md)。
+
+运行时可通过 `career_settings` 中的来源注册表增加公开来源 URL、停用或恢复路线；停用状态会跨运行保留，启动批次时跳过停用路线。内置目录仍只是计划来源。多渠道流程先为每个启用路线取得至少一条实际尝试回执，随后最多两轮针对性修复，再做两轮不同扩词。等待登录/验证需要用户处理，但不会阻挡其他路线。公司目录、扩页、完整 JD 及经验方向均按独立阶段报告，不以计划或职位标题冒充已完成搜索/核验。
 
 ## 来源与开放状态
 

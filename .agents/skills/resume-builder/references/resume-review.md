@@ -1,6 +1,29 @@
 # Resume provenance and revisions
 
-Before building/reviewing, verify every claim against approved experience/profile facts: dates, metrics, titles, tools and personal ownership must exist in the source. Selected experiences must cover analysis items marked `met`; the saved file's bytes must match its stored SHA-256. Label the draft local and unsubmitted.
+Before composing/reviewing, verify every claim against approved experience/profile facts: dates, metrics, titles, tools and personal ownership must exist in the source. Selected experiences must cover analysis items marked `met`. Resume file hashes are not a confirmation or review gate. Label the draft local and unsubmitted.
+
+## Direct tailored composition
+
+Read the experience index before selecting details. Analyse the company's context, role purpose and 2–4 deliverables. Choose the facts that demonstrate those deliverables, then write the version for this role. Preserve personal/team contribution boundaries; stronger phrasing is encouraged when defensible in interview.
+
+`resume compose --job-id <id> --file <json>` accepts `reason`, optional `headline`, nonempty `sections`, and optional source-mapped `summary`. A section has `experience_id`, optional display `title`, and `bullets` using the same claim contract below. Changing the title requires `title_claim` with matching text and its source mapping, so a display label cannot create seniority. Summary uses a claim object plus selected `experience_ids`; an unsupported free-text summary is rejected. Do not place local file paths, private source metadata or open questions in candidate-facing content. Structured context exports only public organisation/location/date fields.
+
+```json
+{
+  "reason": "突出目标岗位的数据整理与报告交付",
+  "headline": "数据分析实习生",
+  "sections": [{
+    "experience_id": 1,
+    "bullets": [{
+      "text": "使用 Python 完成数据整理与报告交付",
+      "source_texts": ["用 Python 整理数据并输出报告"],
+      "change_type": "wording_only",
+      "new_facts": [],
+      "change_reason": "保持工具和职责，突出岗位交付"
+    }]
+  }]
+}
+```
 
 ## Revision input
 
@@ -12,4 +35,4 @@ For added duties, numbers, dates, tools, ownership or effects use `change_type:n
 
 Show pending additions completely, then require direct user factual confirmation before `resume confirm --id <id> --human-confirmed`. Every final draft still needs whole-draft user review. `claim_map` retains source text, experience version, classification and additions; an approved wording revision still needs a fresh job-specific review. Corrections/exclusion invalidate dependent snapshots rather than rewriting historical files. Rebuild from corrected current facts before preparing an application packet.
 
-Inspect `resume history --id <id>` for base, review, feedback and claim mappings. Obtain a fresh review packet for the new ID and follow [the analysis/review contract](../../job-analysis/references/analysis-contract.md); never reuse the base grade. External upload, publication or submission requires authorization for the named destination.
+Inspect `resume history --id <id>` for base, review, feedback and claim mappings. Obtain a fresh review packet for the new ID and follow [the analysis/review contract](../../job-analysis/references/analysis-contract.md); never reuse the base grade. Metadata for pruned historical Markdown remains available. `resume cleanup --all --dry-run` previews descriptive renaming and retention; `--apply` touches only registered Markdown inside the configured output root, never PDF/DOCX/photos. New saves prune only after successful persistence. External upload, publication or submission requires authorization for the named destination.

@@ -101,18 +101,114 @@ CHANNELS = {
 APPLY_CHANNELS = {key for key, value in CHANNELS.items() if value["apply_channel"]}
 APPLY_CHANNELS |= {"email", "referral", "other"}
 
-DEFAULT_PLAN_PROVIDERS = ["official", "boss", "zhilian", "liepin", "zhiye", "51job", "jobui", "ncss", "public", "careerjet"]
+DEFAULT_PLAN_PROVIDERS = ["official", "zhiye", "liepin", "boss", "zhilian", "51job", "jobui", "ncss", "public", "careerjet", "shixiseng", "nowcoder", "gaodun"]
+
+ROUTE_KEY = "job_search_routes"
+EXTRA_ROUTES = {
+    "shixiseng": {"name": "实习僧", "domain": "shixiseng.com", "home": "https://www.shixiseng.com/", "mode": "web_index_or_authorized_import", "access": "catalog", "supports": ["search"], "apply_channel": True, "search_entry": "https://www.shixiseng.com/", "verified_at": "", "note": "目录来源；需实际读取并授权导入"},
+    "nowcoder": {"name": "牛客招聘", "domain": "nowcoder.com", "home": "https://www.nowcoder.com/", "mode": "web_index_or_authorized_import", "access": "catalog", "supports": ["search"], "apply_channel": True, "search_entry": "https://www.nowcoder.com/jobs/center", "verified_at": "", "note": "目录来源；需实际读取并授权导入"},
+    "gaodun": {"name": "高顿招聘", "domain": "gaodun.com", "home": "https://www.gaodun.com/", "mode": "web_index_or_authorized_import", "access": "catalog", "supports": ["search"], "apply_channel": True, "search_entry": "https://www.gaodun.com/", "verified_at": "", "note": "目录来源；需实际读取并授权导入"},
+}
 
 
-def channels():
-    return [{"id": key, **value} for key, value in CHANNELS.items()]
+def route_registry():
+    """Return static routes plus persisted user additions and disabled states."""
+    with connect() as db:
+        ensure_schema(db)
+        row = db.execute("SELECT data FROM career_settings WHERE key=?", (ROUTE_KEY,)).fetchone()
+    saved = deserialize(row["data"]) if row else {}
+    routes = {key: dict(value, enabled=True, discovered=False) for key, value in CHANNELS.items()}
+    for key, value in EXTRA_ROUTES.items():
+        routes.setdefault(key, dict(value, enabled=True, discovered=False))
+    for key, value in saved.items():
+        routes[key] = {**routes.get(key, {}), **value}
+    return routes
+
+
+def set_route(provider, *, enabled=None, url=None, name=None, reason="", resolution=None):
+    """Persist enable/disable or a newly discovered source URL; no connector is enabled."""
+    if not isinstance(provider, str) or not provider.strip() or len(provider) > 80:
+        raise ValidationError("provider must be nonempty text up to 80 characters")
+    provider = provider.strip().lower()
+    current = route_registry()
+    if enabled is None and url is None:
+        raise ValidationError("Provide enabled or url")
+    if enabled is not None and type(enabled) is not bool:
+        raise ValidationError("enabled must be boolean")
+    value = dict(current.get(provider, {}))
+    if resolution is not None:
+        if resolution not in {"resolved", "declined"}:
+            raise ValidationError("resolution must be resolved or declined")
+        if not value.get("user_assistance_requested"):
+            raise ValidationError("User assistance must be requested before resolution")
+        value["user_assistance_resolution"] = resolution
+    if url is not None:
+        value["search_entry"] = clean_url(_text(url, "url", 2048))
+        value["home"] = value["search_entry"]
+        value["discovered"] = provider not in CHANNELS and provider not in EXTRA_ROUTES
+        value.setdefault("name", _text(name or provider, "name", 120))
+        value.setdefault("domain", (urlsplit(value["search_entry"]).hostname or ""))
+        value.setdefault("mode", "manual_public_search")
+        value.setdefault("access", "catalog")
+        value.setdefault("supports", ["search"])
+        value.setdefault("apply_channel", False)
+        value.setdefault("note", "用户发现的来源；需要逐次人工执行并记录回执")
+    if enabled is not None:
+        if enabled is False:
+            failures = 0
+            with connect() as db:
+                for row in db.execute("SELECT data FROM search_runs"):
+                    pipeline = deserialize(row["data"]).get("pipeline", {})
+                    failures += sum(1 for attempt in pipeline.get("query_history", [])
+                                    if attempt.get("provider") == provider and attempt.get("attempted")
+                                    and attempt.get("status") == "failed" and attempt.get("stage") == "repair")
+            if failures < 2:
+                raise ValidationError("Route disable requires two recorded technical repair failures")
+            if not value.get("user_assistance_requested") or value.get("user_assistance_resolution") not in {"resolved", "declined"}:
+                raise ValidationError("Route disable requires requested user assistance and resolved/declined state")
+        value["enabled"] = enabled
+        value["route_note"] = _text(reason, "reason", 500) if reason else ("已启用" if enabled else "已停用")
+        if enabled:
+            value["user_assistance_requested"] = False
+            value.pop("user_assistance_resolution", None)
+    with connect() as db:
+        ensure_schema(db)
+        row = db.execute("SELECT data FROM career_settings WHERE key=?", (ROUTE_KEY,)).fetchone()
+        saved = deserialize(row["data"]) if row else {}
+        saved[provider] = value
+        db.execute("INSERT INTO career_settings(key,data,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at",
+                   (ROUTE_KEY, serialize(saved), now()))
+        audit(db, "search.route.updated", "career_settings", ROUTE_KEY, provider)
+    return {"id": provider, **value}
+
+
+def request_route_assistance(provider):
+    provider = _text(provider, "provider", 80).lower()
+    current = route_registry().get(provider)
+    if current is None:
+        raise ValidationError("Unknown search route")
+    value = dict(current, user_assistance_requested=True, user_assistance_resolution="")
+    with connect() as db:
+        row = db.execute("SELECT data FROM career_settings WHERE key=?", (ROUTE_KEY,)).fetchone()
+        saved = deserialize(row["data"]) if row else {}
+        saved[provider] = value
+        db.execute("INSERT INTO career_settings(key,data,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at",
+                   (ROUTE_KEY, serialize(saved), now()))
+        audit(db, "search.route.assistance_requested", "career_settings", ROUTE_KEY, provider)
+    return {"id": provider, **value}
+
+
+def channels(*, include_dynamic=False):
+    registry = route_registry() if include_dynamic else CHANNELS
+    return [{"id": key, **value} for key, value in registry.items()]
 
 
 def channel_route(provider, query="", location=""):
     """Return the executable next step for one channel instead of a bare plan."""
-    if provider not in CHANNELS:
+    registry = route_registry()
+    if provider not in registry:
         raise ValidationError("Unknown search channel")
-    meta = CHANNELS[provider]
+    meta = registry[provider]
     query, location = (query or "").strip(), (location or "").strip()
     route = {
         "provider": provider,
@@ -174,14 +270,14 @@ def search_plan(query, location="", providers=None):
     query = _text(query, "query", 120)
     if not isinstance(location, str) or len(location) > 80:
         raise ValidationError("location must be text of at most 80 characters")
-    selected = providers or list(DEFAULT_PLAN_PROVIDERS)
-    if not isinstance(selected, list) or any(p not in CHANNELS for p in selected):
+    registry = route_registry()
+    selected = providers or [p for p, meta in registry.items() if meta.get("enabled", True)]
+    if not isinstance(selected, list) or any(p not in registry for p in selected):
         raise ValidationError("Unknown search channel")
-    ordered = list(dict.fromkeys(selected))
+    ordered = [p for p in dict.fromkeys(selected) if registry[p].get("enabled", True)]
     return {"query": query, "location": location.strip(), "executed": False,
-            "channels": [{**channel_route(p, query, location),
-                          "provider": p, **CHANNELS[p],
-                          "search_query": f"site:{CHANNELS[p]['domain']} {location.strip()} {query} 招聘".strip()}
+            "channels": [{"provider": p, **registry[p], "enabled": registry[p].get("enabled", True),
+                          "executed": False, "search_query": f"site:{registry[p].get('domain','')} {location.strip()} {query} 招聘".strip()}
                          for p in ordered],
             "note": "计划不是搜索结果。local_public_search 本地执行；browser_ui 由浏览器操作执行；"
                     "official_site_read 需要单岗 URL；catalog 渠道只能检索后导入线索。"}
@@ -255,7 +351,8 @@ def import_leads(records, *, skip_older=False):
     for raw in records:
         validate_dict(raw, ["provider", "title", "url", "discovered_at", "discovery_method"])
         provider = raw["provider"]
-        if provider not in CHANNELS:
+        registry = route_registry()
+        if provider not in registry:
             raise ValidationError("Unknown lead provider")
         url = clean_url(_text(raw["url"], "url", 2048))
         p = urlsplit(url)
@@ -265,7 +362,9 @@ def import_leads(records, *, skip_older=False):
             from .official import require_public_https
             require_public_https(url)
         else:
-            domain = CHANNELS[provider]["domain"]
+            domain = registry[provider].get("domain", "")
+            if not domain:
+                raise ValidationError("Custom lead route needs a declared public domain")
             if p.username or p.password or not (p.hostname == domain or (p.hostname or "").endswith("." + domain)):
                 raise ValidationError("Lead URL must belong to the declared platform without credentials")
         method = raw["discovery_method"]
@@ -378,6 +477,7 @@ def promote_lead(lead_id, data):
 def search_local(query, location="", provider="zhiye", limit=10, refresh=False):
     _limit(limit)
     _text(query, "query", 120)
+    registry = route_registry()
     if provider == "liepin":
         if not extension_enabled("liepin"):
             meta = OPTIONAL_EXTENSIONS["liepin"]
@@ -397,7 +497,7 @@ def search_local(query, location="", provider="zhiye", limit=10, refresh=False):
                       for lid in imported["lead_ids"]]
         return {**result, "import": imported, "leads": stored, "imported": len(stored), "availability": "unknown"}
     if provider != "zhiye":
-        if provider not in CHANNELS:
+        if provider not in registry:
             raise ValidationError("Unknown provider")
         if provider in {"boss", "zhilian"}:
             return browser_plan(query, location, provider, limit)
@@ -406,8 +506,10 @@ def search_local(query, location="", provider="zhiye", limit=10, refresh=False):
                     "reason": CHANNELS["official"]["note"],
                     "next_command": 'official fetch --url "<单岗页面URL>" --company "<公司>"',
                     "plan": search_plan(query, location, ["official"])}
-        return {"provider": provider, "executed": False, "status": CHANNELS[provider]["mode"],
-                "reason": CHANNELS[provider]["note"], "route": channel_route(provider, query, location),
+        meta = registry[provider]
+        return {"provider": provider, "executed": False, "status": meta.get("mode", "manual_public_search"),
+                "reason": meta.get("note", "需要人工读取并授权导入"),
+                "route": channel_route(provider, query, location) if provider in CHANNELS else {"provider": provider, "access": meta.get("access", "catalog"), "entry_url": meta.get("search_entry", ""), "executed": False},
                 "plan": search_plan(query, location, [provider])}
 
     from .public_search import search_zhiye

@@ -121,7 +121,7 @@ class DiscoveryTests(unittest.TestCase):
             cli.run(["--output", str(path), "jobs", "channels"])
         manifest = json.loads(stdout.getvalue())
         self.assertEqual(manifest["bytes"], path.stat().st_size)
-        self.assertEqual(len(json.loads(path.read_text(encoding="utf-8"))), len(d.CHANNELS))
+        self.assertEqual(len(json.loads(path.read_text(encoding="utf-8"))), len(d.route_registry()))
         self.assertLess(len(stdout.getvalue()), len(path.read_text(encoding="utf-8")))
 
     def test_shortlist_filters_closed_location_and_exclusions_locally(self):

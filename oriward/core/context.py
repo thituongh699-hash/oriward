@@ -247,6 +247,26 @@ def _recent_signals(conn, limit: int = 3) -> list[dict]:
     } for row in rows]
 
 
+def _focus_score(text, focus):
+    if not focus or focus == "inferred/default":
+        return 0
+    tokens = [token.casefold() for token in focus.split() if len(token) > 1]
+    value = str(text or "").casefold()
+    return sum(token in value for token in tokens)
+
+
+def _recovery_claim(item):
+    return {key: item.get(source) for key, source in (("id", "assertion_id"), ("claim", "claim"),
+            ("status", "status"), ("at", "since")) if item.get(source) is not None}
+
+
+def _recovery_action(item):
+    if not item:
+        return None
+    return {key: item.get(key) for key in ("action_id", "id", "title", "status", "due_at")
+            if item.get(key) is not None}
+
+
 def _fit(data: dict, max_chars: int) -> dict:
     """Fit the *printed JSON* budget; omissions always remain visible.
 
@@ -256,11 +276,26 @@ def _fit(data: dict, max_chars: int) -> dict:
     if isinstance(max_chars, bool) or not isinstance(max_chars, int) or max_chars < 1:
         raise ValueError("max_chars must be a positive integer")
     dropped = data.pop("_omitted", {})
-    budget = {"max_chars": max_chars, "chars": 0, "truncated": dropped,
+    budget = {"max_chars": max_chars, "chars": 0, "truncated": {},
               "complete": not dropped, "over_budget": False}
     data["context_budget"] = budget
 
+    # Even the protected capsule can contain growing arrays (for example many
+    # paused branches). Keep the count and a few restore IDs, not every branch.
+    recovery = data.get("recovery", {})
+    for key in ("paused_restore", "important_corrections", "conflicts", "job_ids", "resume_ids"):
+        values = recovery.get(key)
+        if isinstance(values, list) and len(values) > 3:
+            recovery[key] = values[:3]
+            dropped["recovery." + key] = len(values) - 3
+            budget["complete"] = False
+
     def size():
+        summary = {}
+        for path, count in dropped.items():
+            section = path.split(".", 1)[0]
+            summary[section] = summary.get(section, 0) + count
+        budget["truncated"] = ";".join(f"{section}:{count}" for section, count in sorted(summary.items()))
         for _ in range(4):
             budget["chars"] = len(json.dumps(data, ensure_ascii=False, indent=2, default=str))
         return budget["chars"]
@@ -287,14 +322,17 @@ def _fit(data: dict, max_chars: int) -> dict:
     ]
     if size() > max_chars:
         for parent, key in ((None, "drill_down"), ("who_could_i_become", "note"), ("what_next", "rule")):
-            bucket = data if parent is None else data[parent]
+            bucket = data if parent is None else data.get(parent, {})
             if key in bucket:
                 bucket.pop(key)
                 note(key if parent is None else parent + "." + key)
             if size() <= max_chars:
                 break
     for parent, key in paths:
-        bucket = data if parent is None else data[parent]
+        # The recovery capsule is deliberately outside the optional detail list.
+        if parent is None and key == "recovery":
+            continue
+        bucket = data if parent is None else data.get(parent, {})
         parts = key.split(".")
         for part in parts[:-1]:
             bucket = bucket.get(part, {})
@@ -322,6 +360,12 @@ def _fit(data: dict, max_chars: int) -> dict:
         return changed
     if size() > max_chars and shorten(data):
         note("text_shortened")
+    if size() > max_chars:
+        for key in ("conflicts", "important_corrections", "paused_restore", "job_ids", "resume_ids"):
+            values = recovery.get(key)
+            while isinstance(values, list) and len(values) > 1 and size() > max_chars:
+                values.pop()
+                note("recovery." + key)
     budget["over_budget"] = size() > max_chars
     if budget["over_budget"]:
         budget["complete"] = False
@@ -329,7 +373,7 @@ def _fit(data: dict, max_chars: int) -> dict:
     return data
 
 
-def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
+def brief(max_chars: int = DEFAULT_MAX_CHARS, focus: str | None = None, *, _section=None) -> dict:
     with connect() as conn:
         profile = _profile(conn)
         identity = {
@@ -337,6 +381,9 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
             "location": profile.get("location"),
             "target_roles": profile.get("target_roles") or profile.get("target_role"),
         }
+        for key in ("education", "graduation_date", "availability", "target_locations"):
+            if profile.get(key):
+                identity[key] = profile[key]
         identity = {key: value for key, value in identity.items() if value}
 
         strengths = [_claim(conn, row) for row in _live_rows(
@@ -362,6 +409,13 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
         signal_count = conn.execute("SELECT COUNT(*) FROM user_feedback").fetchone()[0]
         application_counts = {row["status"]: row["n"] for row in conn.execute(
             "SELECT status,COUNT(*) AS n FROM applications GROUP BY status")}
+        current_jobs = [item["job_id"] for item in active]
+        if current_jobs:
+            resume_ids = [row[0] for row in conn.execute(
+                "SELECT id FROM resumes WHERE job_id IN (%s) ORDER BY created_at DESC LIMIT 3" %
+                ",".join("?" * len(current_jobs)), current_jobs)]
+        else:
+            resume_ids = [row[0] for row in conn.execute("SELECT id FROM resumes ORDER BY created_at DESC LIMIT 3")]
 
     ranked = open_actions.get("ranked", [])
     next_actions = [{
@@ -396,9 +450,49 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
 
     from .. import onboarding
     session = onboarding.continuation()
+    resolved_focus = (focus or (session.get("current_topic") or {}).get("title") or "inferred/default")
+    if resolved_focus != "inferred/default":
+        focus = resolved_focus
+        goals.sort(key=lambda item: (-_focus_score(f"{item.get('title', '')} {item.get('direction', '')}", focus), item.get("priority", 9)))
+        next_actions.sort(key=lambda item: -_focus_score(item.get("title", ""), focus))
+        active.sort(key=lambda item: -_focus_score(item.get("job", ""), focus))
+        matching_jobs = [item["job_id"] for item in active if _focus_score(item.get("job", ""), focus)]
+        if matching_jobs:
+            current_jobs = matching_jobs[:3]
+            with connect() as conn:
+                resume_ids = [row[0] for row in conn.execute(
+                    "SELECT id FROM resumes WHERE job_id IN (%s) ORDER BY created_at DESC LIMIT 3" %
+                    ",".join("?" * len(current_jobs)), current_jobs)]
     continuation = {key: session[key] for key in ("intent", "current_topic", "paused_branches")}
+    profile = identity.copy()
+    recovery = {
+        "focus": resolved_focus,
+        "current_topic": ({key: session["current_topic"].get(key) for key in
+                           ("id", "title", "status", "next_action", "updated_at", "created_at")
+                           if session["current_topic"].get(key) is not None} if session.get("current_topic") else None),
+        "identity": profile,
+        "education_facts": [_recovery_claim(item) for item in sorted(facts, key=lambda item: item["since"], reverse=True)
+                            if any(word in item["claim"].lower() for word in ("教育", "学校", "毕业", "学历", "education", "graduat"))][:1],
+        "availability": [_recovery_claim(item) for item in sorted(constraints, key=lambda item: item["since"], reverse=True)
+                         if any(word in item["claim"].lower() for word in ("地点", "城市", "可到岗", "实习", "全职", "availability", "location"))][:1],
+        "active_goal": ({key: goals[0].get(key) for key in ("id", "title", "status") if goals[0].get(key)} if goals else None),
+        "next_or_review_or_blocker": _recovery_action(next_actions[0] if next_actions else
+            (open_actions.get("review", [])[:1] or open_actions.get("blocked", [])[:1] or
+             open_actions.get("waiting", [])[:1] or [None])[0]),
+        "experience_count": evidence_base["total"],
+        "experience_index": "python -m oriward experience index",
+        "job_ids": current_jobs,
+        "resume_ids": resume_ids,
+        "paused_count": len(session.get("paused_branches", [])),
+        "paused_restore": [item.get("id") for item in session.get("paused_branches", [])[:3]],
+        "important_corrections": [{"assertion_id": item.get("assertion_id"), "change": item.get("change"),
+                                    "at": item.get("at")} for item in recent_changes[:1]],
+        "conflicts": [{"assertion_id": item.get("assertion_id"), "status": item.get("status")}
+                      for item in uncertainties[:1]],
+    }
     data = {
         "generated_at": now(),
+        "recovery": recovery,
         "continuation": continuation,
         "who_am_i": {
             "identity": identity,
@@ -442,6 +536,11 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS) -> dict:
             "decision": "python -m oriward decision show --id <id>",
         },
     }
+    recovery["focus"] = resolved_focus[:120]
+    if _section is not None:
+        if _section not in data or _section in {"generated_at", "context_budget"}:
+            raise ValueError(f"Unknown context section: {_section}")
+        return _fit({_section: data[_section]}, max_chars)
     return _fit(data, max_chars)
 
 
@@ -456,6 +555,13 @@ def inspect(assertion_id: int) -> dict:
     record["used_by"] = [dict(row) for row in dependents]
     record["versions"] = record["chain"]
     return record
+
+
+def section(name: str, focus: str | None = None, max_chars: int = 12000) -> dict:
+    """Assemble the requested section before fitting, so omitted details return."""
+    data = brief(max_chars=max_chars, focus=focus, _section=name)
+    return {"section": name, "focus": focus or "current_topic", "data": data[name],
+            "context_budget": data["context_budget"]}
 
 
 def why(assertion_id: int) -> dict:

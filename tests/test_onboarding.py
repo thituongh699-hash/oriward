@@ -2,9 +2,11 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from oriward import onboarding as o, services
+from oriward import intake_cli
 from oriward.db import connect, deserialize, now
 
 
@@ -23,7 +25,7 @@ class OnboardingTests(unittest.TestCase):
         prompts = o.missing_prompts()
         self.assertFalse(prompts["blocks_search"])
         self.assertEqual(prompts["default_next_step"], "lightweight_experience_index")
-        self.assertEqual({p["field"] for p in prompts["prompts"]}, {"intent", "companies", "roles", "constraints", "channels"})
+        self.assertEqual({p["field"] for p in prompts["prompts"]}, {"intent", "companies", "roles", "constraints", "channels", "history_intake"})
         with connect() as conn:
             saved = deserialize(conn.execute("SELECT data FROM career_settings WHERE key='onboarding'").fetchone()[0])
         self.assertEqual(saved, state)
@@ -34,6 +36,7 @@ class OnboardingTests(unittest.TestCase):
         o.update_preferences(companies=[], roles=["虚构研究实习"], constraints={"location": "测试城市"})
         o.mark_prompt("intent", "later")
         o.set_channel_preference("liepin", "later")
+        o.set_history_intake("later")
         self.assertEqual(o.missing_prompts(before_search=True)["prompts"], [])
         o.set_channel_preference("liepin", "declined")
         self.assertEqual(o.missing_prompts()["prompts"], [])
@@ -97,6 +100,34 @@ class OnboardingTests(unittest.TestCase):
         services.save_profile({"display_name": "虚构用户", "location": "北京", "availability": "每周五天"})
         self.assertEqual(o.status()["constraints"]["location"], "用户选择的地点")
         self.assertEqual(o.status()["constraints"]["availability"], "每周五天")
+
+    def test_history_consent_is_scoped_and_schedule_is_only_a_host_request(self):
+        with self.assertRaisesRegex(ValueError, "scope"):
+            o.set_history_intake("allow")
+        saved = o.set_history_intake("allow", scope=[str(Path(self.temp.name) / "fictional.jsonl")])
+        self.assertEqual(saved["answer"], "allow")
+        self.assertEqual(len(saved["scope"]), 1)
+        self.assertEqual(o.set_history_intake("later")["scope"], [])
+        services.save_profile({"display_name": "虚构用户", "location": "测试市"})
+        services.add_object("experiences", {"event": "虚构课程项目", "actions": ["整理材料"], "outcomes": [], "evidence": []}, required=())
+        prompt_fields = {row["field"] for row in o.missing_prompts()["prompts"]}
+        self.assertIn("scheduled_search", prompt_fields)
+        result = o.set_scheduled_search("now")
+        self.assertTrue(result["host_task"]["requested"])
+        self.assertEqual(result["host_task"]["max_new_tailored_resumes_per_day"], 3)
+        self.assertFalse(result["host_task"]["create_automation"])
+        self.assertNotIn("scheduled_search", {row["field"] for row in o.missing_prompts()["prompts"]})
+
+    def test_history_cli_reads_only_exactly_authorized_file(self):
+        source = Path(self.temp.name) / "fictional.jsonl"
+        source.write_text('{"role":"user","content":"虚构课程职责"}', encoding="utf-8")
+        args = SimpleNamespace(domain="history", history_action="extract", file=str(source), query="课程", max_chars=500)
+        with self.assertRaises(PermissionError):
+            intake_cli.dispatch(args)
+        o.set_history_intake("allow", scope=[str(source)])
+        result = intake_cli.dispatch(args)
+        self.assertEqual(result["record_count"], 1)
+        self.assertEqual(result["records"][0]["source"], "user")
 
 
 if __name__ == "__main__":
