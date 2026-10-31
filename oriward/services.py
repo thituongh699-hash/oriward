@@ -164,6 +164,8 @@ def list_objects(table):
                     if not r["data"]["needs_review"]]
         rows = db.execute(f"SELECT * FROM {table} ORDER BY id DESC").fetchall()
         result = [dict(row) for row in rows]
+        if table == "jobs":
+            result = [r for r in result if deserialize(r["data"]).get("kind") != "resume_context"]
         if table == "resumes":
             from .experience_library import resume_validity
             result = [{**r, **resume_validity(db, r)} for r in result]
@@ -225,64 +227,21 @@ def get_job(job_id):
 
 
 def build_resume(job_id, experience_ids, headline=""):
+    """Compatibility entrypoint using the same complete draft composition."""
     if not experience_ids:
-        raise ValidationError("Select at least one approved experience")
-    experience_ids = list(dict.fromkeys(int(x) for x in experience_ids))
-    profile = get_profile()
-    if not profile or not profile.get("display_name"):
-        raise ValidationError("Save a current user-backed display_name before building a resume")
+        raise ValidationError("Select at least one experience")
+    from .resume_content import compose
+    ids = list(dict.fromkeys(int(eid) for eid in experience_ids))
+    from .experience_library import validate_for_resume
+    sections = []
     with connect() as db:
-        job = one(db, "jobs", job_id)
-        job_data = deserialize(job["data"])
-        experiences = []
-        for exp_id in experience_ids:
-            from .experience_library import validate_for_resume
-            d = validate_for_resume(db, exp_id)
-            experiences.append((exp_id, d))
-        person = profile["display_name"].strip()
-        contact = profile.get("contact", {})
-        lines = [f"# {person}", ""]
-        contact_items = [str(contact.get(k, "")).strip() for k in ("email", "phone", "portfolio")]
-        if any(contact_items):
-            lines += [" · ".join(x for x in contact_items if x), ""]
-        if profile.get("summary_verified"):
-            lines += ["## 个人简介", str(profile["summary_verified"]), ""]
-        if headline:
-            lines += [f"*申请方向：{headline}*", ""]
-        lines += ["## 相关经历", ""]
-        for exp_id, e in experiences:
-            lines += [f"### {e['event']}", ""]
-            if e.get("context"):
-                from .resume_content import public_context
-                if public_context(e["context"]):
-                    lines += [public_context(e["context"]), ""]
-            bullets = list(e.get("actions", [])) + list(e.get("outcomes", []))
-            for bullet in bullets:
-                if str(bullet).strip():
-                    lines.append(f"- {str(bullet).strip()}")
-            lines.append("")
-        lines += ["---", "", f"*来源记录：岗位 {job_id}（{job_data['company']} / {job_data['title']}）；经历 ID {', '.join(map(str, experience_ids))}。*", "*发布/投递前请人工核对内容；未经证实的推断不应当写入简历。*", ""]
-        content = "\n".join(lines)
-        with db:
-            output_dir = resume_output_dir()
-            output_dir.mkdir(parents=True, exist_ok=True)
-            digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-            # ID generated before output_path is updated to ensure stable filename
-            cursor = db.execute("INSERT INTO resumes(job_id,experience_ids,output_path,sha256,created_at) VALUES (?,?,?,?,?)",
-                                (job_id, serialize(experience_ids), "PENDING", digest, now()))
-            resume_id = cursor.lastrowid
-            from .resume_content import artifact_path
-            path = artifact_path(db, resume_id)
-            with path.open("x", encoding="utf-8", newline="\n") as handle:
-                handle.write(content)
-            db.execute("UPDATE resumes SET output_path=? WHERE id=?", (str(path.resolve()), resume_id))
-            from .experience_library import record_resume_sources
-            record_resume_sources(db, resume_id, experience_ids)
-            audit(db, "resume.built", "resumes", resume_id)
-            result = {"id": resume_id, "path": str(path), "sha256": digest}
-    from .resume_content import cleanup
-    result["retention"] = cleanup(job_id=job_id, apply=True, rename=False)
-    return result
+        for eid in ids:
+            material = validate_for_resume(db, eid)
+            sections.append({"experience_id": eid,
+                             "bullets": material.get("actions", []) + material.get("outcomes", [])})
+    return compose(job_id, {"reason": "Organize the user's existing career material",
+                            "headline": headline,
+                            "sections": sections})
 
 
 def _validate_channel(channel):
@@ -300,19 +259,14 @@ def prepare_application(job_id, resume_id, channel="", apply_url=""):
     apply_channels = APPLY_CHANNELS | {key for key, value in route_registry().items() if value.get("apply_channel")}
     with connect() as db:
         job = one(db, "jobs", job_id)
+        if deserialize(job["data"]).get("kind") == "resume_context":
+            raise ValidationError("A general resume has no vacancy; select a real job before application preparation")
         resume = one(db, "resumes", resume_id)
         if resume["job_id"] != job_id:
             raise ValidationError("Resume does not match job")
         verify_resume(resume)
         from .experience_library import ensure_resume_current
         ensure_resume_current(db, resume)
-        # Legacy base resumes already contain approved wording. New revisions
-        # may contain unconfirmed rephrasing and must not enter a packet yet.
-        from .feedback import ensure_schema
-        ensure_schema(db)
-        version = db.execute("SELECT factual_status FROM resume_versions WHERE resume_id=?", (resume_id,)).fetchone()
-        if version and version["factual_status"] != "approved":
-            raise ValidationError("Revision wording requires user factual confirmation before application preparation")
         job_data = deserialize(job["data"])
         if channel:
             channel = _validate_channel(channel)

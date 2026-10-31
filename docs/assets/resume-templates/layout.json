@@ -11,12 +11,17 @@
     "section": 12.5,
     "body": 10.5
   },
-  "line_spacing": 1.18,
+  "line_spacing": 1.12,
   "photo_mm": {
     "width": 26,
     "height": 35
   },
   "templates": {
+    "reference": {
+      "label": "个人参考模板",
+      "source": "个人参考 PDF",
+      "photo": "optional"
+    },
     "modern-cn": {
       "label": "现代中文",
       "accent": "#176B67",

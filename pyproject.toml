@@ -1,13 +1,13 @@
 [project]
 name = "oriward-local"
-version = "0.3.0"
-description = "Evidence-backed career growth workbench for students and recent graduates, powered by your chosen agent"
+version = "0.4.0"
+description = "Experience translation and resume workbench for career changes and returns to work, powered by your chosen agent"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Oriward contributors" }]
-keywords = ["career", "job-search", "resume", "students", "graduates", "local-first", "sqlite", "agent"]
+keywords = ["career", "job-search", "resume", "career-change", "return-to-work", "local-first", "sqlite", "agent"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",

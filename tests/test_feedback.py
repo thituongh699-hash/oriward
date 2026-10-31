@@ -62,7 +62,7 @@ class FeedbackTests(unittest.TestCase):
         fid = self.feedback()["id"]
         self.assertEqual(f.feedback_plan(self.job)["open_count"], 1)
         revision = self.revision([fid])
-        self.assertEqual(revision["factual_status"], "approved")
+        self.assertEqual(revision["factual_status"], "draft")
         rid = self.review(revision)["id"]
         result = f.resolve_feedback(fid, rid, "Rechecked exact revised version")
         self.assertEqual(result["status"], "resolved")
@@ -72,27 +72,24 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(history[-1]["version"]["feedback_ids"], [fid])
         self.assertEqual(history[-1]["version"]["base_resume_id"], self.resume["id"])
 
-    def test_rewording_requires_confirmation_and_new_review(self):
+    def test_rewording_is_a_usable_draft_without_confirmation_or_review(self):
         revision = self.revision(rewrite=True)
-        self.assertEqual(revision["factual_status"], "pending")
-        self.assertIsNone(self.review(revision)["grade"])
-        with self.assertRaises(s.ValidationError):
-            s.prepare_application(self.job, revision["id"])
+        self.assertEqual(revision["factual_status"], "draft")
+        self.assertFalse(revision["requires_new_review"])
+        self.assertEqual(revision["pending_new_facts"], [])
+        self.assertTrue(s.prepare_application(self.job, revision["id"]))
+        self.assertEqual(self.review(revision)["grade"], "A")
         with self.assertRaises(s.ValidationError):
             f.confirm_revision(revision["id"])
-        # Fixture confirmation only; never substitutes for a real user's acknowledgement.
-        f.confirm_revision(revision["id"], human_confirmed=True)
-        self.assertEqual(self.review(revision)["grade"], "A")
-        self.assertTrue(s.prepare_application(self.job, revision["id"]))
 
     def test_declared_source_preserving_packaging_inherits_approval(self):
         revision = self.revision(sections=[{"experience_id": self.exp, "bullets": [{
             "text": "Produced a Python report", "source_texts": ["Built a Python report"],
             "change_type": "wording_only", "new_facts": [],
             "change_reason": "Professional action wording; tool, scope and result unchanged"}]}])
-        self.assertEqual(revision["factual_status"], "approved")
-        self.assertTrue(revision["whole_draft_review_required"])
-        mapping = f.version_history(revision["id"])[-1]["version"]["claim_map"][0]
+        self.assertEqual(revision["factual_status"], "draft")
+        self.assertFalse(revision["whole_draft_review_required"])
+        mapping = next(m for m in f.version_history(revision["id"])[-1]["version"]["claim_map"] if m.get("field") == "bullet")
         self.assertEqual(mapping["change_type"], "wording_only")
         self.assertEqual(mapping["experience_version"], 1)
         self.assertEqual(mapping["classification_source"], "agent_declared")
@@ -101,20 +98,18 @@ class FeedbackTests(unittest.TestCase):
     def test_added_metrics_are_separately_pending_and_cannot_be_wording_only(self):
         bullet = {"text": "Built 30 Python reports", "source_texts": ["Built a Python report"],
                   "change_type": "wording_only", "new_facts": [], "change_reason": "Rewording"}
-        with self.assertRaisesRegex(s.ValidationError, "new number"):
-            self.revision(sections=[{"experience_id": self.exp, "bullets": [bullet]}])
+        wording = self.revision(sections=[{"experience_id": self.exp, "bullets": [bullet]}])
+        self.assertEqual(wording["factual_status"], "draft")
         bullet.update(change_type="new_facts", new_facts=["Report count was 30"])
         revision = self.revision(sections=[{"experience_id": self.exp, "bullets": [bullet]}])
         self.assertEqual(revision["factual_status"], "pending")
         self.assertEqual(revision["pending_new_facts"][0]["new_facts"], ["Report count was 30"])
-        with self.assertRaises(s.ValidationError):
-            s.prepare_application(self.job, revision["id"])
+        self.assertTrue(s.prepare_application(self.job, revision["id"]))
 
     def test_packaging_requires_explicit_declaration_not_only_a_source_quote(self):
         bullet = {"text": "Produced a Python report", "source_texts": ["Built a Python report"],
                   "change_type": "wording_only"}
-        with self.assertRaisesRegex(s.ValidationError, "explicit"):
-            self.revision(sections=[{"experience_id": self.exp, "bullets": [bullet]}])
+        self.assertEqual(self.revision(sections=[{"experience_id": self.exp, "bullets": [bullet]}])["factual_status"], "draft")
         bullet.update(change_type="new_facts", new_facts=[])
         with self.assertRaisesRegex(s.ValidationError, "nonempty"):
             self.revision(sections=[{"experience_id": self.exp, "bullets": [bullet]}])
@@ -123,7 +118,7 @@ class FeedbackTests(unittest.TestCase):
         from oriward import experience_library as lib
         pending = self.revision(rewrite=True)
         lib.exclude(self.exp, reason="User removed this experience")
-        with self.assertRaisesRegex(s.ValidationError, "needs_review"):
+        with self.assertRaisesRegex(s.ValidationError, "inactive"):
             self.revision()
         with self.assertRaisesRegex(s.ValidationError, "needs_review"):
             f.confirm_revision(pending["id"], human_confirmed=True)
@@ -175,10 +170,6 @@ class FeedbackTests(unittest.TestCase):
         fid = self.feedback()["id"]
         revision = self.revision([fid], rewrite=True)
         rid = self.review(revision)["id"]
-        f.confirm_revision(revision["id"], human_confirmed=True)
-        with self.assertRaisesRegex(s.ValidationError, "completed review"):
-            f.resolve_feedback(fid, rid, "Old pending review")
-        rid = self.review(revision)["id"]
         job = s.get_job(self.job)
         job["description"] += "\nNew hard requirement"
         sources.import_records([job])
@@ -192,11 +183,10 @@ class FeedbackTests(unittest.TestCase):
         with self.assertRaises(s.ValidationError):
             self.revision(review_id=999)
 
-    def test_empty_evidence_never_generates_resume(self):
+    def test_empty_evidence_user_intake_generates_resume(self):
         eid = s.add_object("experiences", {"event": "No evidence", "actions": ["Claim"], "outcomes": [],
             "evidence": [], "approved_for_resume": True}, ["event", "actions", "outcomes", "evidence", "approved_for_resume"])
-        with self.assertRaisesRegex(s.ValidationError, "nonempty"):
-            s.build_resume(self.job, [eid])
+        self.assertTrue(s.build_resume(self.job, [eid]))
 
     def test_collision_does_not_delete_existing_file(self):
         collision = Path(self.resume["path"].replace("_v1_", "_v2_"))

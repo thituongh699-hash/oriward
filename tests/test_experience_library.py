@@ -78,7 +78,7 @@ class ExperienceLibraryTests(unittest.TestCase):
         lib.revise(eid, {"actions": ["30人到院，是否付费未知"]}, reason="Correct transaction scope", expected_version=1)
         self.assertEqual([r["version"] for r in lib.history(eid)], [1, 2])
         self.assertEqual(lib.get(eid)["data"]["actions"], ["30人到院，是否付费未知"])
-        self.assertFalse(lib.get(eid)["data"]["approved_for_resume"])
+        self.assertTrue(lib.get(eid)["data"]["approved_for_resume"])
         self.assertTrue(s.list_objects("resumes")[0]["needs_review"])
         self.assertEqual(Path(old["path"]).read_bytes(), old_bytes)
         with self.assertRaisesRegex(ValueError, "needs_review"):

@@ -46,17 +46,19 @@ class WorkflowTests(unittest.TestCase):
         self.assertRaises(s.ValidationError, s.clean_url, "file:///private/pwd")
         self.assertRaises(s.ValidationError, s.clean_url, "javascript:alert(1)")
 
-    def test_resume_rejects_unapproved_experiences(self):
+    def test_resume_accepts_self_reports_without_approval(self):
         self.add_exp(approved=False)
         s.import_jobs(self.add_job())
-        with self.assertRaisesRegex(s.ValidationError, "not approved"):
-            s.build_resume(1, [1])
+        result = s.build_resume(1, [1])
+        self.assertIn("Cleaned a dataset", Path(result["path"]).read_text(encoding="utf-8"))
 
-    def test_resume_rejects_unverified_evidence(self):
+    def test_one_uncertain_claim_does_not_block_known_actions(self):
         self.add_exp(approved=True, evidence_status="unverified")
         s.import_jobs(self.add_job())
-        with self.assertRaisesRegex(s.ValidationError, "unverified evidence"):
-            s.build_resume(1, [1])
+        result = s.build_resume(1, [1])
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("Cleaned a dataset with Python", text)
+        self.assertNotIn("Used Python", text)
 
     def test_evidence_linked_resume_and_submit_gate(self):
         exp_id = self.add_exp()
@@ -64,7 +66,7 @@ class WorkflowTests(unittest.TestCase):
         res = s.build_resume(1, [exp_id], "Internship")
         text = Path(res["path"]).read_text(encoding="utf-8")
         self.assertIn("Cleaned a dataset with Python", text)
-        self.assertIn("经历 ID 1", text)
+        self.assertNotIn("经历 ID", text)
         self.assertNotIn("expert", text.lower())
         application_id = s.prepare_application(1, res["id"])
         app = s.list_objects("applications")[0]

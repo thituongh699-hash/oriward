@@ -75,7 +75,7 @@ def vacancy_key(company: str, title: str, location: str = "") -> tuple[str, str,
 
 
 def _rebuild(db) -> dict:
-    rows = db.execute("SELECT id, title, company, data FROM jobs").fetchall()
+    rows = db.execute("SELECT id, title, company, data FROM jobs WHERE source_key NOT LIKE 'oriward:resume-context:%'").fetchall()
     placed = 0
     for row in rows:
         job = deserialize(row["data"])
@@ -103,7 +103,7 @@ def regroup() -> dict:
 
 
 def _ensure_groups(db) -> None:
-    jobs = db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    jobs = db.execute("SELECT COUNT(*) FROM jobs WHERE source_key NOT LIKE 'oriward:resume-context:%'").fetchone()[0]
     members = db.execute("SELECT COUNT(*) FROM job_group_members").fetchone()[0]
     if jobs != members:
         _rebuild(db)
@@ -389,7 +389,7 @@ def pipeline() -> dict:
         except sqlite3.OperationalError:
             leads_total = 0
 
-        jobs = db.execute("SELECT id, title, company, url, data FROM jobs").fetchall()
+        jobs = db.execute("SELECT id, title, company, url, data FROM jobs WHERE source_key NOT LIKE 'oriward:resume-context:%'").fetchall()
         jobs_by_channel: dict[str, int] = {}
         published_missing = description_empty = 0
         for row in jobs:

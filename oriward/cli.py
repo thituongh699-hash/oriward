@@ -175,13 +175,15 @@ def run(argv=None):
             x = actions.add_parser("promote"); x.add_argument("--id", type=int, required=True); x.add_argument("--file", required=True)
             x = actions.add_parser("fetch"); x.add_argument("--id", type=int, required=True); x.add_argument("--refresh", action="store_true")
         elif domain == "resume":
-            x = actions.add_parser("tailor-packet"); x.add_argument("--job-id", type=int, required=True)
-            x = actions.add_parser("compose"); x.add_argument("--job-id", type=int, required=True); x.add_argument("--file", required=True)
+            x = actions.add_parser("tailor-packet"); x.add_argument("--job-id", type=int)
+            x.add_argument("--offset", type=int, default=0); x.add_argument("--budget", type=int, default=6000)
+            x = actions.add_parser("compose"); x.add_argument("--job-id", type=int); x.add_argument("--file", required=True)
             x = actions.add_parser("cleanup")
             group = x.add_mutually_exclusive_group(required=True)
             group.add_argument("--job-id", type=int); group.add_argument("--all", action="store_true")
             mode = x.add_mutually_exclusive_group(required=True)
             mode.add_argument("--dry-run", action="store_true"); mode.add_argument("--apply", action="store_true")
+            x.add_argument("--purge", action="store_true", help="Remove all registered Markdown in scope and keep history metadata")
             x = actions.add_parser("build")
             x.add_argument("--job-id", type=int, required=True)
             x.add_argument("--experience-ids", required=True, help="Comma-separated evidence IDs")
@@ -591,11 +593,11 @@ def run(argv=None):
         return
     if args.domain == "resume":
         if args.action == "tailor-packet":
-            p(resume_content.tailor_packet(args.job_id)); return
+            p(resume_content.tailor_packet(args.job_id, offset=args.offset, budget=args.budget)); return
         if args.action == "compose":
             p(resume_content.compose(args.job_id, s.json_file(args.file))); return
         if args.action == "cleanup":
-            p(resume_content.cleanup(job_id=args.job_id, apply=args.apply)); return
+            p(resume_content.cleanup(job_id=args.job_id, apply=args.apply, purge=args.purge)); return
         if args.action == "build":
             ids = [int(x.strip()) for x in args.experience_ids.split(",") if x.strip()]
             p(s.build_resume(args.job_id, ids, args.headline))
@@ -659,7 +661,7 @@ def run(argv=None):
     if args.domain in {"intake", "history"}:
         p(intake_cli.dispatch(args)); return
     mapping = {
-        "experience": ("experiences", ["event", "actions", "outcomes", "evidence", "approved_for_resume"]),
+        "experience": ("experiences", ["event"]),
         "career": ("career_directions", ["title", "rationale", "supporting_experience_ids", "gaps", "validation_status"]),
         "analysis": ("job_analyses", ["job_id", "strengths", "gaps", "unknowns", "recommendation", "confidence"]),
         "learning": ("learning_plans", ["target_role", "gaps", "milestones", "review_date"]),

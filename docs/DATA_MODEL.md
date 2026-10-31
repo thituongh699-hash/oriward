@@ -1,6 +1,8 @@
 # Data model and contracts
 
-v0.3 / schema v6：`resumes.job_version` 是岗位内版本，`artifact_state:available|pruned` 标记正文状态。升级为旧记录回填版本，不删除正文。`resume_versions` 保留事实映射、审批与修订关系；直接 compose 的根记录以自身为基线，历史遍历在根终止。旧哈希字段只兼容保留，不再阻断简历确认、评审或导出；JD 和事实来源变更检测保留。
+v0.3 / schema v6：`resumes.job_version` 是岗位内版本，`artifact_state:available|pruned` 标记正文状态。升级为旧记录回填版本，不删除正文。`resume_versions` 保留来源映射、历史确认与修订关系；直接 compose 的根记录以自身为基线，历史遍历在根终止。旧哈希字段只兼容保留，不再阻断简历确认、评审或导出；JD 和事实来源变更检测保留。
+
+`resume cleanup --all --dry-run` previews descriptive renaming and retention. To remove every registered Markdown while preserving job, experience and version records, use `resume cleanup --purge --all --dry-run`, inspect paths/skips, then `--apply`. This command never deletes unregistered PDF/DOCX exports.
 
 `career_settings` 保存指定文件的历史读取意愿和范围、定时搜索意愿及渠道注册表。搜索运行 JSON 兼容旧的渠道最新回执，同时追加查询/修复/扩展尝试和流程阶段。报告区分未执行、零结果、权限等待、失败和成功；新渠道 URL 是待验证数据，不能改变 Agent 规则。标题目录只进入线索，完整有来源的 JD 才进入岗位。
 
@@ -10,7 +12,7 @@ SQLite 由 `python -m oriward init` 初始化；默认数据库为 `data/private
 
 | 实体 | 关键关系 | 不变量 |
 | --- | --- | --- |
-| `experiences` | 当前经历版本、来源、标签 | 进入简历须获准且有清晰自述/确认/文档来源；排除、替代或关联事实失效后不得继续作当前证据 |
+| `experiences` | 当前经历版本、来源、标签 | 清晰自述即可直接用于写稿，无逐条批准门槛；排除、替代或关联事实失效后不得继续作当前证据 |
 | `experience_versions` | experience ID + version | 修订/排除/替代前后保留快照；旧经历首次变更前建立版本 1 基线 |
 | `career_settings` | 引导意图、目标、渠道偏好、话题/暂停分支 | 接入意愿与实际连接回执分开；不存凭证，不自动启用渠道 |
 | `search_runs` | 搜索范围、渠道回执、候选摘要、报告路径 | 部分失败和未执行不得统计成零结果；时间信息不互相冒充 |
@@ -18,8 +20,8 @@ SQLite 由 `python -m oriward init` 初始化；默认数据库为 `data/private
 | `job_source_snapshots` | job 的历史内容 | 内容变更才新增，数据库触发器禁止更新/删除 |
 | `job_analyses` | job 的要求映射 | 要求保留 JD 精确引文和稳定 `job_sha256` |
 | `resumes` | job + experience IDs + 文件 | `job_version` 为岗位内版本；`artifact_state:available|pruned`，哈希旧列仅兼容、不阻断操作 |
-| `hiring_reviews` | resume + analysis | 七阶段完整覆盖；等级由 CLI 计算，不接受输入等级 |
-| `resume_versions` | revision -> base | 保存 claim map、反馈/评审来源与事实确认状态 |
+| `hiring_reviews` | resume + analysis | 可选正式评审需七阶段完整覆盖；等级由 CLI 计算，不接受输入等级 |
+| `resume_versions` | revision -> base | 保存 claim map、反馈/评审来源与工作进度；旧确认仅保留历史 |
 | `applications` | job + exact resume | 准备不等于提交；`SUBMITTED` 需真人确认 |
 | `application_events` | application 的时间线 | 状态流转自动写入；手工节点可带未来 `scheduled_at` 作为日程 |
 | `vacancy_groups` | 归一化公司+岗位+城市 | 一个 `group_key` 一组；只做候选归并，不证明同一岗位 |
@@ -28,13 +30,15 @@ SQLite 由 `python -m oriward init` 初始化；默认数据库为 `data/private
 
 ## 经历索引与技能卡
 
-简略入库最小输入是 `event`、`actions`、`outcomes`、`evidence`；三个数组可空，`approved_for_resume` 默认 false。可有 `summary`、`time_period/period/start_date/end_date`、`tags` 或 `inferred_skills`。标签可以是字符串或 `{name,source}`；未注明来源默认为探索性模型标签，不等同熟练度声明。需要用于简历时，记录普通自述等非空来源并取得事实批准，不要求证明附件。
+简略入库最小输入是 `event`；`actions`、`outcomes`、`evidence` 三个数组可省略，默认空数组，`approved_for_resume` 默认 false。可有 `summary`、`time_period/period/start_date/end_date`、`tags` 或 `inferred_skills`。标签可以是字符串或 `{name,source}`；未注明来源默认为探索性模型标签，不等同熟练度声明。普通对话自述足以正常使用，由整理过程保存实际来源，不要求证明附件、精确 KPI 或事实批准。旧 `approved_for_resume` 保留历史，不作使用门槛；false 不等于明确排除。不得将模型推断或来源不明内容批量升级为自述，也不建立全库待核验队列。
+
+普通对话入库默认按 `user_message` 来源保存 `provenance_status:user_stated`；导入内容须保留真实来源，文档与来源不明内容不能冒充用户讲述。
 
 当前 JSON 管理 `version`、`status:current|excluded|superseded`；`needs_review`、`stale_assertion_ids` 是动态读取结果，不由调用者填写。支持通过 `assertion_ids` 绑定事实版本；旧数据的事实断言反向链接也会检查。断言更正/撤回/争议后，旧经历需核对，不自动生成替代事实。无机器链接的语义冲突仍由 Agent 识别。
 
 `experience index`（以及 list）返回当前 ID、版本、时间、概要和标签，默认实际 JSON 预算 2200 字符。`total_count/omitted_count/offset/next_offset/complete` 明确目录覆盖；小预算可降为 `compact_card`。`experience skills` 从当前未失效经历派生能力卡，关联经历 ID/版本和标签来源；`omitted_refs` 表示本卡未展开的其他来源，按标签查询 index 可继续查找。不会复制整份详情。
 
-`experience detail --ids ... --sections actions,outcomes` 返回实际 `sections_read`；可按 query 选模块，但禁止无选择地读全库。show 支持单 ID、历史 version 和选定章节。修订用 changes-only JSON，保留 ID 和历史；事实变更默认重置批准，除非本次更正已获用户批准。原 summary 未同步提供时自动丢弃，索引从新动作/结果重建。exclude/supersede 更新生命周期；旧简历保留原文件，并以来源版本检查标记需要复核，不能继续准备/评审/导出为当前内容。
+`experience detail --ids ... --sections actions,outcomes` 返回实际 `sections_read`；可按 query 选模块，但禁止无选择地读全库。show 支持单 ID、历史 version 和选定章节。修订用 changes-only JSON，保留 ID 和历史；用户事实更正直接生效，无二次批准；普通岗位文案修改另存简历版本。原 summary 未同步提供时自动丢弃，索引从新动作/结果重建。exclude/supersede 更新生命周期；旧简历保留原文件，并以来源版本检查标记需要复核，需使用新事实重新组稿后再作为当前材料；历史草稿仍可本地导出查看，清单保留来源变化提示。
 
 ## 首用与搜索批次
 
@@ -120,7 +124,9 @@ Greenhouse/Lever adapter 还会保留 provider 字段和原始 HTML，同时把 
 - `quote` 必须是当前 JD 的精确子串；不要改写后冒充原文。
 - `kind` 为 `hard_gate|core|preferred`；`match` 为 `met|gap|unknown`。
 - `met` 需带有效 `evidence_refs`，类型为 `experience_version|assertion|document`，包含真实 `id`。经历引用冻结当前版本与内容；断言须当前有效、清晰自述/确认/文档验证的 fact/constraint；含糊低置信、推断、争议或过期记录不能作 met。文档引用指向有 `source_ref` 的 document_verified 断言；绝对本地文件路径另冻结文件哈希。普通自述不要求附件。
-- `experience_ids` 兼容旧输入并规范化为版本引用。经历需获准、有非空来源；学历/证书/到岗可用对应断言或文档，不强制经历 ID。已保存引用带哈希，后续复用可发现修订。
+- `experience_ids` 兼容旧输入并规范化为版本引用。经历需当前有效且来源与表述一致，清晰用户自述足够；学历/证书/到岗可用对应断言或文档，不强制经历 ID。已保存引用带哈希，后续复用可发现修订。
+- `resume compose` 的 `profile_sections` 可使用字符串或 `{text,source_texts?}` 自然整理已有教育、技能、到岗和兴趣事实，不限于 `summary_verified` 的逐字摘录。来源映射在后台维护，不能借改写增加工具、学校、指标或职责。经历 `links` 保留个人资料已有的 HTTPS 来源及经历关联，项目链接与所属经历相邻显示。
+- 岗位简历 `sections` 使用 `experience_id` 或 `experience_ids`，可用 `mode:expanded|brief` 分配详略、合并同阶段细碎事件；`exclude_experience_ids` 保存明确的本稿排除，未使用的当前可用经历自动简述补回。检查主要职业阶段、教育与时间关系，不要求每个事件独占一段。`section_order` 保留指定布局，否则按履历安排；个人固定模板不是通用强制结构。岗位文案另存，不能覆盖原经历。
 - 复合条件使用 `components:[{id,text,quote,match,rationale,evidence_refs}]`，每个部分分别匹配。只有完整覆盖才能把整体写 met；只做差旅不能证明做考勤。CLI 捕捉显式连接词，语义拆解由 Agent 负责。
 - `coverage_confirmed=true` 只表示 Agent 已检查完整 JD 并确认 requirements 覆盖完整，不表示候选人匹配。
 - `company_context` 每项都把可核查事实和推断分开，并保留 URL、日期和 availability。
@@ -128,7 +134,11 @@ Greenhouse/Lever adapter 还会保留 provider 字段和原始 HTML，同时把 
 
 可选 `role_focus`：`mission` 描述岗位目的；`hiring_motive:{fact,inference,sources}` 分开事实与招聘动机假设；`core_deliverables` 为 2–4 项 `{id,text,requirement_ids}`；`resume_themes`、`interview_themes` 为字符串数组。事实动机需来源。完整模板先取 draft；旧记录可不含 focus。核心交付之外的常规任务/偏好差距作为准备事项，真实门槛始终检查。
 
+无目标的 `resume compose`/`resume tailor-packet` 可省略 job ID，内部使用明确非职位的通用上下文，不将其作为招聘岗位。定制包的 `offset/next_offset/has_more` 和实际预算显示覆盖范围，每页只加载对应详情；`translation_focus` 帮助连接已有动作与目标交付。已有 `education`/`education_history` 或旧摘要中的教育随组稿补全。
+
 ## 七阶段评审 JSON
+
+本节是用户需要具体模拟招聘评估时的可选契约；正常写稿、本地预览/导出和准备材料不要求先完成七阶段。
 
 `review packet` 提供模板。若还没有结构化分析，模板中的 `analysis_id` 可以为 `null`；此时先完成分析，不能保存正式评审。
 
@@ -174,7 +184,7 @@ CLI 拒绝输入 `grade/status/reasons`，并校验来源版本、analysis/job �
 - **B**：ATS/HR 预期通过但有准备风险，或完整覆盖/当前来源等 A 条件未满足；可能为 provisional。
 - **C**：筛选仍有可能，但核心交付存在实质差距、有来源的竞争劣势、非门槛阶段失败或结构性 finding。使用 role_focus 时，未映射核心交付的次要任务/偏好差距不单独强制 C。
 - **D**：已知 hard gate gap、有依据的 ATS/HR/background fail、关闭岗位、已证实公司不匹配或真实 blocker；未知资格对应的 fail/blocker 不自动视为已知失败。
-- **NEEDS_EVIDENCE**：无法诚实给等级，例如未知硬门槛、ATS/HR 尚不能判 pass、改写事实待确认。已知 D 级原因优先于 unknown gate。
+- **NEEDS_EVIDENCE**：无法诚实给等级，例如未知硬门槛、ATS/HR 尚不能判 pass。已知 D 级原因优先于 unknown gate。
 
 开放状态必须来自该岗位本身的当前记录，或与该岗位 URL 对应的有日期来源；公司新闻页或其他职位不能替代目标职位证据。当前岗位为 closed 时优先返回 D，分析建议 skip，不能用 dossier 中的 listed 覆盖。旧评审或待补证据的评审不能用于关闭反馈。
 
@@ -226,7 +236,7 @@ CLI 拒绝输入 `grade/status/reasons`，并校验来源版本、analysis/job �
 }
 ```
 
-每个 `source_texts` 必须逐字存在于同一当前经历的 action、outcome 或 evidence claim。`exact` 沿用原句；`wording_only` 需明确 `new_facts:[]` 和理由，沿用事实批准；新增事实用 `new_facts` 分类及非空新增清单，未分类改写同样 pending，一次核对新增内容即可。CLI 有限检查数字、工具、职责词，不声称自动验证语义；保留 Agent 声明、来源映射和整稿人工检查。操作见 [resume-review](../.agents/skills/resume-builder/references/resume-review.md)。
+正文 bullets 可为字符串或 claim 对象；`source_texts` 可省略，来源由 Agent/runtime 维护，用户无需给逐句引文。既有 `exact|wording_only|new_facts` 分类和新增清单保留背景说明，不以词语变化推断用户需要重新批准。忠实提炼和专业包装直接成稿，正常 `factual_status=draft` 只描述进度；旧已批准状态仅保留历史。不得编造新事实；不清楚的数字先不写，针对必要歧义轻量追问，仍交付完整可用稿供用户修改。保留来源版本、原始叙述和文案历史，不冒充语义自动验证或用户确认。操作见 [resume-review](../.agents/skills/resume-builder/references/resume-review.md)。
 
 ## 申请状态
 
@@ -260,7 +270,7 @@ READY_FOR_USER -> SUBMITTED -> INTERVIEW -> OFFER -> ACCEPTED
 
 身份读取使用 Core 投影：兼容 profile 缓存加有效断言，断言中的纠正优先。`profile save` 与断言同事务提交，长期列表只追加；纠正/撤回使用 belief，旧缓存或 `twin sync-legacy` 不得覆盖新纠正、复活撤回。同步对旧 profile、方向、经历能力推断和岗位作幂等单向投影，保留历史映射，不改原文档。
 
-`belief revise` 默认继承证据链接；显式 links 替换，`links=[]` 清除，每版保留自己的来源与解释。来源决定初始认识状态：user_message/interview/legacy_profile/feedback → user_stated；document → document_verified；experience → user_confirmed；model_inference/reflection/external_source → inferred。后三类只能提出 inferred，不能覆盖成用户自述或已确认事实。来源必须真实，状态默认值不等于可伪造证据或代用户确认。
+`belief revise` 默认继承证据链接；显式 links 替换，`links=[]` 清除，每版保留自己的来源与解释。来源决定初始认识状态：user_message/interview/legacy_profile/feedback → user_stated；document → document_verified；experience → inferred；model_inference/reflection/external_source → inferred。模型、反思和外部推断来源只能提出 inferred，不能覆盖成用户自述或已确认事实。来源必须真实，状态默认值不等于可伪造证据或代用户确认。
 
 `belief propose` 的能力推断输入示例（经历 3 须真实存在）：
 
@@ -316,3 +326,5 @@ CLI 拒绝未知字段。信号指向存储实体时须有真实记录；升格�
 - 决策 context 冻结当时断言及其链接、关联目标、岗位及来源快照、行动定义和引用的经历证据。当前状态变化会使建议要求重评，旧记录保留。
 - assessment 为 eligible、unassessed（日程任务，未证实适配）、validation（澄清未知）、review 或 excluded；后两类不会进入可执行推荐列表。
 - 具体 JSON、字段准入和命令见 [DECISIONS.md](DECISIONS.md)。
+
+通用简历使用 `source_key=oriward:resume-context:general` 的内部上下文关联版本，不是真实职位，不进入岗位列表、归并、流水线或申请。组合输入和呈现覆盖以完整 JSON 保存在 `resume.composition` / `resume.coverage` 审计快照中，用于修改时保留其他段落。`tailor-packet` 只附索引与 `detail_requests`，不自动返回无界经历正文。

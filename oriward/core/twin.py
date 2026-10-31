@@ -61,7 +61,7 @@ def sync_legacy() -> dict:
         from ..experience_library import list_current
         experiences = [(row["id"], row["data"]) for row in list_current(conn=conn)
                        if not row["data"]["needs_review"]]
-        jobs = [row["id"] for row in conn.execute("SELECT id FROM jobs ORDER BY id")]
+        jobs = [row["id"] for row in conn.execute("SELECT id FROM jobs WHERE source_key NOT LIKE 'oriward:resume-context:%' ORDER BY id")]
         known_pipeline = {row["job_id"] for row in conn.execute("SELECT job_id FROM job_pipeline")}
         applied_jobs = {row["job_id"] for row in conn.execute("SELECT DISTINCT job_id FROM applications")}
         live_claims = conn.execute(
@@ -180,7 +180,7 @@ def sync_legacy() -> dict:
                     assertion_type="skill_hypothesis", source_type="experience",
                     epistemic_status="inferred", confidence=confidence,
                     source_ref=f"experiences:{experience_id}",
-                    explanation="由经历中的模型推断技能迁移而来，需用户确认",
+                    explanation="由经历中的模型推断技能迁移而来，保留为探索性能力线索",
                     links=[{"ref_type": "experience", "ref_id": experience_id, "relation": "derived_from"}],
                 )
             except ValueError as error:
@@ -239,7 +239,7 @@ def status() -> dict:
                 overdue += 1
         health = {
             "jobs_without_pipeline": conn.execute(
-                "SELECT COUNT(*) FROM jobs j WHERE NOT EXISTS "
+                "SELECT COUNT(*) FROM jobs j WHERE j.source_key NOT LIKE 'oriward:resume-context:%' AND NOT EXISTS "
                 "(SELECT 1 FROM job_pipeline p WHERE p.job_id=j.id)").fetchone()[0],
             "applications_without_events": conn.execute(
                 "SELECT COUNT(*) FROM applications a WHERE NOT EXISTS "

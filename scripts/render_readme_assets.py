@@ -79,10 +79,10 @@ def main():
     c.text(76, 45, "CAREER TWIN / AN OPEN-SOURCE WORKBENCH", 17, MINT, "mono")
     c.text(74, 115, "Oriward", 144, PAPER, "bold")
     c.text(81, 273, "原向", 34, MINT, "cnb")
-    c.text(78, 369, "从「我能做什么」", 53, PAPER, "cnb")
-    c.text(78, 447, "到「下一步怎么走」", 53, PAPER, "cnb")
+    c.text(78, 369, "让过去的经历", 53, PAPER, "cnb")
+    c.text(78, 447, "成为新的可能", 53, PAPER, "cnb")
     c.text(81, 560, "记得来路，走向可能。", 27, "#B9C6C6")
-    c.text(81, 634, "FOR STUDENTS & RECENT GRADUATES", 16, "#8EAAA8", "mono")
+    c.text(81, 634, "EXPERIENCE INTO OPPORTUNITY", 16, "#8EAAA8", "mono")
     for x in range(939, 1501, 35):
         for y in range(125, 650, 35):
             c.circle(x, y, 1.2, "#304253")
@@ -99,7 +99,7 @@ def main():
     c.text(1302, 566, "evidence", 19, "#A5BDBC", "serif")
     c.text(1330, 597, "into possibility", 27, PAPER, "serif")
     c.line([(78, 743), (1522, 743)], "#3A4C59", 1)
-    for i, label in enumerate(("认识自己", "探索方向", "推进行动", "反馈修正")):
+    for i, label in enumerate(("找回经历", "翻译能力", "清晰表达", "推进行动")):
         x = 81+i*367
         c.text(x, 790, f"0{i+1}", 18, MINT, "mono")
         c.text(x+54, 781, label, 26, PAPER)
@@ -116,7 +116,7 @@ def main():
     a.text(205, 362, "CAREER TWIN CORE", 27, INK, "bold")
     a.text(1040, 367, "Python CLI + SQLite", 20, TEAL, "mono")
     for i, (title, detail, update) in enumerate((
-        ("长期 · 我是谁", "经历 / 能力 / 价值观 / 约束", "访谈、证据与用户确认"),
+        ("长期 · 我是谁", "经历 / 能力 / 价值观 / 约束", "用户讲述与持续修改"),
         ("中期 · 我想成为什么", "方向假设 / 目标 / 差距 / 规划", "机会、探索与目标变化"),
         ("短期 · 我正在做什么", "岗位 / 申请 / 面试 / 下一步", "真实操作与结果反馈"))):
         x = 205+406*i
@@ -139,7 +139,7 @@ def main():
         a.text(x, y, cn, 24, PAPER, "cnb")
         a.text(x, y+36, en, 14, "#9EB9B8", "mono")
     a.arrow([(1430, 797), (1498, 797), (1498, 454), (1431, 454)], TEAL, 3)
-    a.text(800, 979, "操作结果 → 情境反馈 → 核实与确认 → 更新状态 / 重评建议", 25, INK, anchor="mm")
+    a.text(800, 979, "用户讲述 → 经验翻译 → 完整初稿 → 看稿修改 / 推进行动", 25, INK, anchor="mm")
     a.text(800, 1032, "8 个职业 Skills 写回 Core；document-export 仅作格式转换。无内置模型服务或后台进程。", 19, GRAY, anchor="mm")
     a.save("oriward-architecture.png")
 
@@ -148,8 +148,8 @@ def main():
     p.text(74, 52, "FOR THE NEXT CHAPTER", 18, MINT, "mono")
     p.text(68, 107, "Oriward", 150, PAPER, "bold")
     p.text(78, 281, "原向", 43, MINT, "cnb")
-    p.text(77, 392, "记得来路，", 48, PAPER, "cnb")
-    p.text(77, 465, "走向可能。", 48, PAPER, "cnb")
+    p.text(77, 392, "让过去的经历，", 48, PAPER, "cnb")
+    p.text(77, 465, "成为新的可能。", 48, PAPER, "cnb")
     p.text(80, 657, "FOUR QUESTIONS. ONE CONTINUOUS UNDERSTANDING.", 17, TEAL, "mono")
     questions = [("01", "Who am I?", "我是谁，经历过什么、看重什么？"),
                  ("02", "Who could I become?", "我的能力，还可能走向哪里？"),
@@ -165,10 +165,11 @@ def main():
         p.text(157, y+56, cn, 25, GRAY)
         p.line([(155, y+111), (1120, y+111)], LINE, 1)
     p.rect((76, 1289, 1124, 1473), MINT, 15)
-    p.text(106, 1310, "+  Why do you think so?", 43, INK, "serif")
-    p.text(109, 1382, "为什么这样认为？依据是什么，又因何改变？", 27, INK, "cnb")
+    p.text(109, 1310, "这些事我确实做过，", 30, INK, "cnb")
+    p.text(109, 1361, "但以前不知道它们值得写，", 30, INK, "cnb")
+    p.text(109, 1412, "也不知道可以这样表达。", 30, INK, "cnb")
     p.text(80, 1514, "CAREER TWIN CORE + SKILLS", 18, TEAL, "mono")
-    p.text(1120, 1526, "面向在校生与应届生 · 本地求职成长工作台", 20, GRAY, anchor="ra")
+    p.text(1120, 1526, "面向重新求职与转向的人 · 经验翻译工作台", 20, GRAY, anchor="ra")
     p.save("oriward-poster.png")
 
 

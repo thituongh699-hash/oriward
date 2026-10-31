@@ -26,6 +26,14 @@
 
 About 描述可直接复制：
 
-> 面向在校生与应届生的本地求职成长工作台。以 Career Twin Core + Skills 连接自我认识、职业探索与求职行动，让每个建议有依据、每次反馈可追溯。
+> 帮助经历丰富、正在重新求职或转向的人，通过对话找回经历、翻译可迁移能力，把过去的积累转化为能表达、能验证、能行动的职业机会。
 
-Topics 建议：`career`、`job-search`、`students`、`graduates`、`agent-skills`、`local-first`、`sqlite`、`python`。
+Topics 建议：`career`、`job-search`、`career-change`、`return-to-work`、`agent-skills`、`local-first`、`sqlite`、`python`。
+
+## 公开宣传文案
+
+- 品牌标语：记得来路，走向可能。
+- 首页与海报主题：让过去的经历，成为新的可能。
+- 期望体验：这些事我确实做过，但以前不知道它们值得写，也不知道可以这样表达。
+
+这些句子描述产品目标，不代表真实用户证言或录用承诺。
