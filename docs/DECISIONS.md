@@ -2,7 +2,7 @@
 
 Agent 阅读资料并判断语义，Core 校验引用、保存当时状态、检查变化和整理待办。排序分数只表示日程优先级，不代表岗位适合度或成功率。
 
-在推荐岗位/方向、选择投入方案或重评受证据变化影响的建议时使用本契约。普通记账或日程 action 不必逐个填写六因素；未记录适配判断的 action 保持 unassessed。存储实体与输入示例的维护分工见 [DATA_MODEL](DATA_MODEL.md)，操作入口见 [WORKFLOWS](WORKFLOWS.md)。
+在推荐岗位/方向、选择投入方案或重评受证据变化影响的建议时使用本契约。普通经历翻译、自然改写和本地简历初稿不走推荐审批；清晰用户自述可直接使用。普通记账或日程 action 不必逐个填写六因素；未记录适配判断的 action 保持 unassessed。存储实体与输入示例的维护分工见 [DATA_MODEL](DATA_MODEL.md)，操作入口见 [WORKFLOWS](WORKFLOWS.md)。
 
 ## 一次建议如何保存
 
@@ -22,7 +22,7 @@ Agent 阅读资料并判断语义，Core 校验引用、保存当时状态、检
     "preference": {"status": "supports", "reason": "用户偏好可积累作品的任务", "assertion_ids": [2]},
     "job": {"status": "supports", "reason": "已检查真实岗位当前 JD 和来源日期"},
     "deadline": {"status": "not_applicable", "reason": "此次内部准备无硬截止，岗位投递期限待查"},
-    "capability": {"status": "supports", "reason": "用户已确认 SQL 课程项目的具体动作", "experience_ids": [1]},
+    "capability": {"status": "supports", "reason": "用户明确讲述过 SQL 项目的具体动作", "experience_ids": [1]},
     "cost": {"status": "supports", "reason": "本周两小时预算内安排一小时", "planned_weekly_hours": 1}
   },
   "constraint_checks": [
@@ -31,7 +31,7 @@ Agent 阅读资料并判断语义，Core 校验引用、保存当时状态、检
 }
 ```
 
-以上 ID 仅为格式示意，必须替换成当前库的真实记录。factors 必须恰好包含 goal/preference/job/deadline/capability/cost；status 是 supports/conflicts/unknown/not_applicable。能力标为 supports 必须引用已确认且仍有效的能力断言，或带已核实证据、获准使用的经历。推断只能作为 unknown 的待验证线索。
+以上 ID 仅为格式示意，必须替换成当前库的真实记录。factors 必须恰好包含 goal/preference/job/deadline/capability/cost；status 是 supports/conflicts/unknown/not_applicable。能力标为 supports 必须引用已确认且仍有效的能力断言，或来源明确、仍有效且足以支持该动作的用户自述经历。推断只能作为 unknown 的待验证线索。
 
 Core 不会从一句“不接受出差”自动猜测所有 JD；Agent 必须逐项读原文并保存核实结果。没有决策记录的旧任务只属于日程排序，assessment=unassessed，不能据此声称“已证实适合”。当关联岗位存在用户硬约束而没有核实记录时，Core 会将推进任务留在 review。
 
@@ -52,7 +52,7 @@ python -m oriward decision outcome --id <decision-id> --kind result --note "实�
 ## 修改目标和用户认识
 
 ```text
-python -m oriward goal update --id <goal-id> --status paused --note "期末考试，暂时保留方向但暂停执行"
+python -m oriward goal update --id <goal-id> --status paused --note "当前工作和照护安排需调整，暂时保留方向但暂停执行"
 python -m oriward goal update --id <goal-id> --file <reviewed-update.json>
 python -m oriward goal history --id <goal-id>
 ```

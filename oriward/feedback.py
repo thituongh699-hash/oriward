@@ -1,8 +1,7 @@
 """Versioned resume revisions and attributed recruiting feedback, entirely local."""
 from __future__ import annotations
 
-import hashlib
-import re
+import json
 from datetime import datetime, timezone
 from .db import connect, one, serialize, deserialize, now, audit
 from . import services as s
@@ -137,147 +136,172 @@ def _lineage(db, resume_id):
 
 
 def _packaging(bullet, text, facts, quotes):
-    """Validate the declared change contract; this is not semantic verification.
-
-    Exact mappings and a few obvious numeric/tool/scope additions are checkable
-    deterministically. The source Agent owns semantic classification and the
-    user still reviews the complete draft before use.
-    """
-    kind = bullet.get("change_type", "exact" if text in facts else "unclassified")
+    """Record the author's classification; vocabulary is not a fact verifier."""
+    kind = bullet.get("change_type", "exact" if text in facts else "wording_only")
     if kind not in {"exact", "wording_only", "new_facts", "unclassified"}:
         raise s.ValidationError("change_type must be exact|wording_only|new_facts|unclassified")
     additions = bullet.get("new_facts", [])
     if not isinstance(additions, list) or any(not isinstance(v, str) or not v.strip() for v in additions):
         raise s.ValidationError("new_facts must be an array of factual additions")
-    rationale = bullet.get("change_reason", "")
-    if kind == "exact" and text not in facts:
-        raise s.ValidationError("exact wording must be an existing factual action/outcome")
-    if kind == "wording_only":
-        if "new_facts" not in bullet or additions or not isinstance(rationale, str) or not rationale.strip():
-            raise s.ValidationError("wording_only requires explicit new_facts:[] and change_reason")
-        # A limited guard, deliberately not advertised as semantic proof.
-        pattern = (r"\d+(?:[.,]\d+)*|\b(?:Python|SQL|Excel|VBA|SPSS|PowerBI|Tableau|Java|"
-                   r"manager|director|leader|expert|led|managed|owned)\b|"
-                   r"负责人|总监|经理|主管|精通|独立负责|主导|付费成交|原账号")
-        target_tokens = set(re.findall(pattern, text, re.IGNORECASE))
-        source_tokens = set(re.findall(pattern, " ".join(quotes), re.IGNORECASE))
-        if {t.casefold() for t in target_tokens} - {t.casefold() for t in source_tokens}:
-            raise s.ValidationError("wording_only includes a new number, tool or scope marker; classify as new_facts")
     if kind == "new_facts" and not additions:
         raise s.ValidationError("new_facts classification requires an explicit nonempty new_facts list")
     if additions and kind != "new_facts":
         raise s.ValidationError("Factual additions must use change_type=new_facts")
-    return {"change_type": kind, "new_facts": additions, "change_reason": rationale,
-            "classification_source": "agent_declared", "verification": "source_mapping_and_limited_lexical_guards"}, kind in {"new_facts", "unclassified"}
+    return {"change_type": kind, "new_facts": additions,
+            "change_reason": bullet.get("change_reason", ""),
+            "classification_source": "agent_declared", "verification": "source_mapping"}, kind == "new_facts"
 
 
 def revise_resume(data):
-    """Persist sourced wording; declared factual additions stay pending."""
+    """Compose a complete new draft and append feedback/version provenance."""
     s.validate_dict(data, ["base_resume_id", "reason", "sections"])
     base_id = _id(data["base_resume_id"], "base_resume_id")
     reason = _text(data["reason"], "reason")
     if not isinstance(data["sections"], list) or not data["sections"]:
         raise s.ValidationError("sections must be a nonempty array")
     feedback_ids = _ids(data.get("feedback_ids", []), "feedback_ids")
-    new_path = None
-    try:
-        with connect() as db:
-            ensure_schema(db)
-            base = one(db, "resumes", base_id)
-            base_content = s.verify_resume(base).read_text(encoding="utf-8")
-            from .experience_library import ensure_resume_current, validate_for_resume, record_resume_sources
-            ensure_resume_current(db, base)
-            base_version = db.execute("SELECT factual_status FROM resume_versions WHERE resume_id=?", (base_id,)).fetchone()
-            if base_version and base_version["factual_status"] != "approved":
-                raise s.ValidationError("Base revision facts are pending; confirm or use an approved base")
-            review_id = data.get("review_id")
-            if review_id is not None:
-                _id(review_id, "review_id")
-                from .assessment import list_reviews
-                reviews = list_reviews(base_id)
-                if not any(r["id"] == review_id for r in reviews):
-                    raise s.ValidationError("review_id must reference a review of the base resume")
-            ancestors = _lineage(db, base_id)
-            for feedback_id in feedback_ids:
-                row = db.execute("SELECT * FROM recruiting_feedback WHERE id=?", (feedback_id,)).fetchone()
-                if row is None or row["job_id"] != base["job_id"] or row["resume_id"] not in ancestors:
-                    raise s.ValidationError("Feedback must reference this job and a base version")
-            prefix, marker, tail = base_content.partition("\n## 相关经历\n")
-            if not marker or "\n---\n" not in tail:
-                raise s.ValidationError("Base resume lacks supported section structure")
-            selected = []
-            lines = []
-            pending = False
-            mapping = []
-            for section in data["sections"]:
-                s.validate_dict(section, ["experience_id", "bullets"])
-                eid = _id(section["experience_id"], "experience_id")
-                if eid in selected:
-                    raise s.ValidationError("Duplicate experience section")
-                selected.append(eid)
+    review_id = data.get("review_id")
+    from . import resume_content
+    from .experience_library import resume_validity, validate_for_resume, usable_facts
+    with connect() as db:
+        ensure_schema(db)
+        base = one(db, "resumes", base_id)
+        s.verify_resume(base)
+        stale_ids = {issue["experience_id"] for issue in resume_validity(db, base)["issues"]}
+        if review_id is not None:
+            _id(review_id, "review_id")
+            from .assessment import list_reviews
+            if not any(r["id"] == review_id for r in list_reviews(base_id)):
+                raise s.ValidationError("review_id must reference a review of the base resume")
+        ancestors = _lineage(db, base_id)
+        for feedback_id in feedback_ids:
+            row = db.execute("SELECT * FROM recruiting_feedback WHERE id=?", (feedback_id,)).fetchone()
+            if row is None or row["job_id"] != base["job_id"] or row["resume_id"] not in ancestors:
+                raise s.ValidationError("Feedback must reference this job and a base version")
+        baseline = resume_content.composition_for_resume(base_id)
+        if baseline is None:
+            baseline = {"sections": []}
+            for eid in deserialize(base["experience_ids"]):
+                if eid in stale_ids:
+                    continue
                 exp = validate_for_resume(db, eid)
-                facts = exp["actions"] + exp["outcomes"]
-                sources = facts + [e["claim"] for e in exp["evidence"]]
-                if not isinstance(section["bullets"], list) or not section["bullets"]:
-                    raise s.ValidationError("Every section requires bullets")
-                lines += ["", f"### {exp['event']}", ""]
-                if exp.get("context"):
-                    from .resume_content import public_context
-                    if public_context(exp["context"]):
-                        lines += [public_context(exp["context"]), ""]
-                for bullet in section["bullets"]:
-                    s.validate_dict(bullet, ["text", "source_texts"])
-                    text = _text(bullet["text"], "bullet.text")
-                    if "\n" in text or "\r" in text:
-                        raise s.ValidationError("A bullet must be one line")
-                    quotes = bullet["source_texts"]
-                    if not isinstance(quotes, list) or not quotes or any(q not in sources for q in quotes):
-                        raise s.ValidationError("source_texts must quote verified facts from the same experience")
-                    classification, needs_confirmation = _packaging(bullet, text, facts, quotes)
-                    pending = pending or needs_confirmation
-                    lines.append(f"- {text}")
-                    mapping.append({"experience_id": eid, "experience_version": exp["version"],
-                                    "text": text, "source_texts": quotes, **classification})
-            content = prefix + marker + "\n".join(lines) + "\n\n---\n\n"
-            job = one(db, "jobs", base["job_id"])
-            content += f"*来源记录：岗位 {job['id']}（{job['company']} / {job['title']}）；经历 ID {', '.join(map(str, selected))}。*\n"
-            content += "*发布/投递前请人工核对内容；未经证实的推断不应当写入简历。*\n"
-            digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-            cursor = db.execute("INSERT INTO resumes(job_id,experience_ids,output_path,sha256,created_at) VALUES (?,?,?,?,?)",
-                                (base["job_id"], serialize(selected), "PENDING", digest, now()))
-            rid = cursor.lastrowid
-            output_dir = s.resume_output_dir()
-            output_dir.mkdir(parents=True, exist_ok=True)
-            from .resume_content import artifact_path
-            new_path = artifact_path(db, rid)
-            # Exclusive create prevents accidental overwrite on mismatched databases.
-            with new_path.open("x", encoding="utf-8", newline="\n") as handle:
-                handle.write(content)
-            db.execute("UPDATE resumes SET output_path=? WHERE id=?", (str(new_path.resolve()), rid))
-            status = "pending" if pending else "approved"
-            db.execute("INSERT INTO resume_versions VALUES (?,?,?,?,?,?,?,?)",
-                       (rid, base_id, review_id, serialize(feedback_ids), reason, serialize(mapping), status, now()))
-            audit(db, "resume.revised", "resumes", rid, f"base={base_id};facts={status}")
-            record_resume_sources(db, rid, selected)
-            result = {"id": rid, "path": str(new_path), "sha256": digest, "base_resume_id": base_id,
-                    "factual_status": status, "requires_new_review": True,
-                    "whole_draft_review_required": True,
-                    "pending_new_facts": [m for m in mapping if m["change_type"] in {"new_facts", "unclassified"}]}
-    except Exception:
-        # Only delete the new artifact if this call actually created it.
-        if new_path is not None and new_path.exists() and 'rid' in locals():
-            # A collision existed before exclusive open: never delete that file.
-            if 'handle' in locals():
-                new_path.unlink()
-        raise
-    from .resume_content import cleanup
-    result["retention"] = cleanup(job_id=base["job_id"], apply=True, rename=False)
+                baseline["sections"].append({"experience_id": eid, "bullets": usable_facts(exp)})
+        baseline = json.loads(json.dumps(baseline))
+        old_profile = baseline.get("_profile_snapshot")
+        if isinstance(old_profile, dict) and "profile_sections" not in data:
+            current_profile = s.get_profile()
+            heading_fields = {"教育经历": ("education", "education_history", "summary_verified"),
+                              "专业技能": ("skills",), "资格证书": ("certifications",),
+                              "个人优势": ("summary_verified",)}
+            changed_headings = {heading for heading, fields in heading_fields.items()
+                                if any(old_profile.get(key) != current_profile.get(key) for key in fields)}
+            baseline["profile_sections"] = [item for item in baseline.get("profile_sections", [])
+                                            if item.get("heading") not in changed_headings]
+        def section_ids(section):
+            if not isinstance(section, dict):
+                raise s.ValidationError("section must be an object")
+            ids = section.get("experience_ids", [section.get("experience_id")])
+            if not isinstance(ids, list) or not ids:
+                raise s.ValidationError("section needs experience IDs")
+            return [_id(eid, "experience_id") for eid in ids]
+        replaced = set()
+        for section in data["sections"]:
+            ids = section_ids(section)
+            if replaced.intersection(ids):
+                raise s.ValidationError("Duplicate experience section")
+            replaced.update(ids)
+        def retain_section(section, removed):
+            ids = section_ids(section)
+            remaining = [eid for eid in ids if eid not in removed]
+            if not remaining:
+                return None
+            if len(remaining) == len(ids):
+                return section
+            retained = dict(section)
+            retained.pop("experience_id", None)
+            retained["experience_ids"] = remaining
+            facts_by_id = {eid: set(usable_facts(validate_for_resume(db, eid))) for eid in remaining}
+            bullets = []
+            for original in section.get("bullets", []):
+                bullet = {"text": original} if isinstance(original, str) else dict(original)
+                owners = bullet.get("experience_ids")
+                if owners is None:
+                    quotes = bullet.get("source_texts", [bullet.get("text")])
+                    owners = [eid for eid, facts in facts_by_id.items() if any(q in facts for q in quotes)]
+                    # Unassigned paraphrases/joint claims cannot safely be split.
+                    if not owners or any(not any(q in facts for facts in facts_by_id.values()) for q in quotes):
+                        continue
+                if set(owners).intersection(removed) or not set(owners).issubset(remaining):
+                    continue
+                bullet["experience_ids"] = owners
+                bullets.append(bullet)
+            retained["bullets"] = bullets
+            return retained
+        sections = []
+        consumed_replacements = set()
+        for section in baseline.get("sections", []):
+            group_ids = set(section_ids(section))
+            overlap = group_ids & replaced
+            candidates = [(index, replacement) for index, replacement in enumerate(data["sections"])
+                          if group_ids.intersection(section_ids(replacement))]
+            if (overlap and group_ids - overlap and not group_ids.intersection(stale_ids)
+                    and all(set(section_ids(replacement)).issubset(group_ids) for _, replacement in candidates)):
+                # A wording edit to one source does not establish ownership of
+                # unassigned/shared group prose. Retain it and the group metadata;
+                # only explicitly source-specific replaced bullets are removed.
+                # To rewrite joint prose, the Agent supplies the complete group.
+                merged = dict(section)
+                merged.pop("experience_id", None)
+                merged["experience_ids"] = section_ids(section)
+                bullets = []
+                for bullet in section.get("bullets", []):
+                    owners = bullet.get("experience_ids") if isinstance(bullet, dict) else None
+                    if owners and set(owners).issubset(overlap):
+                        continue
+                    bullets.append(bullet)
+                for index, replacement in candidates:
+                    ids = section_ids(replacement)
+                    additions = replacement.get("bullets")
+                    if not additions:
+                        additions = [fact for eid in ids for fact in
+                                     (validate_for_resume(db, eid).get("actions", []) +
+                                      validate_for_resume(db, eid).get("outcomes", []))[:1]]
+                    for original in additions:
+                        bullet = {"text": original} if isinstance(original, str) else dict(original)
+                        bullet.setdefault("experience_ids", ids)
+                        bullets.append(bullet)
+                    consumed_replacements.add(index)
+                merged["bullets"] = bullets
+                sections.append(merged)
+            else:
+                retained = retain_section(section, replaced | stale_ids)
+                if retained:
+                    sections.append(retained)
+        sections.extend(section for index, section in enumerate(data["sections"])
+                        if index not in consumed_replacements)
+        if stale_ids and "summary" not in data:
+            summary = baseline.get("summary")
+            ids = summary.get("experience_ids") if isinstance(summary, dict) else None
+            if summary and (ids is None or stale_ids.intersection(ids)):
+                baseline.pop("summary", None)
+        baseline.update({key: value for key, value in data.items()
+                         if key not in {"base_resume_id", "review_id", "feedback_ids", "sections"}})
+        baseline["sections"] = sections
+        job_id = base["job_id"]
+    result = resume_content.compose(job_id, baseline)
+    with connect() as db:
+        # compose owns the full map, including titles, profile and summary.
+        # Updating lineage must never replace its factual metadata.
+        db.execute("UPDATE resume_versions SET base_resume_id=?, review_id=?, feedback_ids=?, reason=? WHERE resume_id=?",
+                   (base_id, review_id, serialize(feedback_ids), reason, result["id"]))
+        audit(db, "resume.revised", "resumes", result["id"], f"base={base_id};facts={result['factual_status']}")
+    result.update(base_resume_id=base_id, requires_new_review=False, whole_draft_review_required=False)
     return result
 
 
 def confirm_revision(resume_id, *, human_confirmed=False):
     if not human_confirmed:
-        raise s.ValidationError("Reworded claims require direct user confirmation; pass --human-confirmed only after it")
+        raise s.ValidationError("Optional factual confirmation requires the user agreement; use --human-confirmed only after it")
     with connect() as db:
         ensure_schema(db)
         resume = one(db, "resumes", resume_id)
@@ -288,7 +312,7 @@ def confirm_revision(resume_id, *, human_confirmed=False):
             raise s.ValidationError("Resume is not a revision")
         db.execute("UPDATE resume_versions SET factual_status='approved' WHERE resume_id=?", (resume_id,))
         audit(db, "resume.facts_confirmed", "resumes", resume_id)
-    return {"resume_id": resume_id, "factual_status": "approved", "requires_new_review": True}
+    return {"resume_id": resume_id, "factual_status": "approved", "requires_new_review": False}
 
 
 def version_history(resume_id):
@@ -333,8 +357,6 @@ def resolve_feedback(feedback_id, review_id, note):
         current_job = deserialize(one(db, "jobs", resume["job_id"])["data"])
         if review["job_sha256"] != _job_sha256(current_job):
             raise s.ValidationError("Resolution review is stale because the JD changed")
-        if version["factual_status"] != "approved":
-            raise s.ValidationError("Confirm revised facts before resolving feedback")
         resolution = {"review_id": review_id, "resume_id": review["resume_id"], "note": note, "resolved_at": now()}
         db.execute("UPDATE recruiting_feedback SET status='resolved',resolution=? WHERE id=?",
                    (serialize(resolution), feedback_id))

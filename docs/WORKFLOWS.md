@@ -13,7 +13,7 @@ python -m oriward intake history-consent --answer allow --scope data/private/cha
 python -m oriward history extract --file data/private/chat-export.jsonl --query 项目 --max-chars 12000
 ```
 
-先整理简略索引、关联原始细节，再集中核实重要归属和新增事实，不强制证明附件或精确 KPI。提取不会自动写入经历；使用既有 experience add/revise 保存。经历和城市安排可用后，提示是否需要每日定时搜索；`intake search-schedule --answer now|later|no` 记录意愿，宿主建立任务前确认时间、时区和范围。每日最多制作三份新的高相关岗位简历，保持未投递；无变化时安静。此命令本身不创建任务。
+通过自然对话恢复工作、经营、教育、项目和非标准就业经历，先整理简略时间线、关联原始细节。清晰自述足以保存和写稿，不要求逐条经历批准、证明附件或精确 KPI；只针对会改变表达的重要歧义轻量追问。提取不会自动写入经历；使用既有 experience add/revise 保存。经历和城市安排可用后，提示是否需要每日定时搜索；`intake search-schedule --answer now|later|no` 记录意愿，宿主建立任务前确认时间、时区和范围。每日最多制作三份新的高相关岗位简历，保持未投递；无变化时安静。此命令本身不创建任务。
 
 默认上下文先保留恢复包：当前话题和下一步、身份/教育/城市安排、相关目标、可执行动作或阻塞、经历索引入口、岗位/简历 ID、暂停分支数量和恢复入口、重要更正及冲突。`context brief --focus <主题>` 优先当前主题；`context section --name <章节>` 展开详情。默认 3200 字符按实际 JSON 计数；过小预算无法容纳最小信息时明确报告 `over_budget`。
 
@@ -40,17 +40,17 @@ python -m oriward pipeline show --job-id 1
 
 ## 按岗位定制与保留版本
 
-先用 `resume tailor-packet --job-id <id>` 读取有界经历索引、公司/JD 和分析；再展开相关经历，确定岗位目的和 2–4 项交付。Agent 选择、包装并改写经历，构成目标公司与岗位的版本。`resume compose --job-id <id> --file <json>` 直接保存定制稿，无需先生成原文简历。输入见 [简历契约](../.agents/skills/resume-builder/references/resume-review.md)。
+先读取已有个人资料与完整经历索引，分页直到完成，按批加载细节。`resume tailor-packet --job-id <id>` 返回公司/JD、分析、`translation_focus` 及有界材料；使用 `--offset`/`--budget`，沿 `next_offset` 读取到 `has_more=false`，不能把首包当成全库。没有目标时省略 job ID，生成通用简历上下文，不伪造职位或强迫先选方向。理解岗位目的和 2–4 项交付，再把实际动作接到新岗位要求。展开相关经历、解释跨行业迁移价值、简述其他主要职业阶段，保留教育和时间脉络，尊重明确排除。通过 `resume compose --file <json>` 保存通用完整稿，有目标时加 `--job-id <id>`；输入见 [简历契约](../.agents/skills/resume-builder/references/resume-review.md)。
 
-措辞调整复用事实审批，新增事实集中确认。简介、改写标题和正文均需来源映射。通用经历库不被岗位措辞覆盖。保留来源版本、事实确认及独立评审，取消简历哈希门槛。兼容字段不要求填写。
+用户已经讲清的事实直接使用，AI 主动完成专业改写、归纳和真实基础上的包装，交完整稿供用户阅读修改；不要求逐句引文或重复确认，不建立经历评级和审批队列。简介、资料栏目、标题及正文的来源在后台维护，项目链接放在对应经历下。可用 `experience_ids` 合并同阶段来源、`mode:brief` 简述、`exclude_experience_ids` 记录本稿明确排除；未使用的当前可用经历自动简述补回，仍需检查其表达质量。原始经历不被岗位文案覆盖；保留来源版本与历史，不伪造用户确认。缺一个数字时先用已知事实成稿，不阻断整份材料。
 
-同一岗位自动保留当前 Markdown 和三个历史 Markdown；命名含公司、岗位、城市、岗位编号、版本和日期。超量正文在新稿成功保存后才清理，数据库历史及 claim_map 保留，PDF/DOCX/照片不参与。旧库升级不自动删文件；先 `resume cleanup --all --dry-run` 查看，再 `--apply`。仅处理登记在输出根目录内的 Markdown。
+同一岗位自动保留当前 Markdown 和三个历史 Markdown；命名含公司、岗位、城市、岗位编号、版本和日期。超量正文在新稿成功保存后才清理，数据库历史及 claim_map 保留，PDF/DOCX/照片不参与。旧库升级不自动删文件；先 `resume cleanup --all --dry-run` 查看，再 `--apply`。确需清除全部简历正文时，先检查 `resume cleanup --purge --all --dry-run`，再用 `--apply`；该命令仅删除登记在输出根目录内的 Markdown，并保留经历、岗位与版本审计记录，不触及 PDF/DOCX/照片。
 
-DOCX/PDF 使用 [导出技能](../.agents/skills/document-export/SKILL.md) 的两套模板及虚构样张，选择含可选照片的现代中文单栏或无照片清爽版。执行逐页检查，不通过过小字号强挤一页。实际 renderer 和视觉检查状态写入清单。
+保留用户明确的模板选择，包括其个人参考结构；个人参考不推广为全产品固定结构。通用默认依实际履历组织，有长期工作经历时可先工作，学生可先教育/项目，`section_order` 可保存指定顺序。导出可选择 `reference`、`modern-cn` 或 `clean`；项目标题、日期、要点和链接保持归属清楚。执行逐页检查，重点检查首页密度、跨页标题和留白；不通过过小字号强挤一页。实际 renderer 和视觉检查状态写入清单。
 
 ## 经历盘点
 
-首次以简略经历盘点为主：做过什么、本人主要动作、已知结果和探索性标签。复用已有材料，不要求完整深访、证明文件或量化 KPI 才能开始。简短询问目标职位/公司、安排和渠道接入意愿；已有紧急 JD 时直接处理。只问缺失信息，暂缓/拒绝后不反复追问：
+首次以简略经历盘点为主：做过什么、本人主要动作、已知结果和探索性标签。复用已有材料，不要求完整深访、证明文件或量化 KPI 才能开始。简短询问目标职位/公司、安排和渠道接入意愿；已有紧急 JD 时直接处理。只问当前最有帮助的问题，不为补齐字段逐项盘问；暂缓/拒绝后不反复追问：
 
 ```text
 python -m oriward onboarding preferences --file data/private/preferences.json
@@ -75,7 +75,7 @@ python -m oriward belief propose --file data/private/belief.json
 python -m oriward belief list --limit 20
 ```
 
-`experience list` 同样只返回预算内索引；多经历用 `next_offset` 继续，或按标签/文本筛选。详情返回实际读取的 ID、版本和章节；不默认发送整个长经历库。经历初建仅需 `event` 及 `actions/outcomes/evidence` 数组（可空）。普通自述可作来源，附件可选；正式进入简历仍需实际批准 `approved_for_resume=true`。清晰自述可支持岗位分析，不必重复确认每句话；含糊自述保留低置信和原话。只有用户直接认可后才执行 `belief confirm`。
+`experience list` 同样只返回预算内索引；多经历用 `next_offset` 继续，或按标签/文本筛选。详情返回实际读取的 ID、版本和章节；不默认发送整个长经历库。经历初建仅需 `event`，`actions/outcomes/evidence` 数组可省略。普通自述足以直接整理入库和写稿，附件可选；`approved_for_resume` 仅保留旧历史含义，false 不代表用户拒绝，不再是使用门槛。模型推断不得冒充自述；含糊内容保留其不确定性，先使用已知事实。`belief confirm` 只记录用户真实认可，不是写稿前置步骤。
 
 更正保留稳定 ID 和历史，排除会从默认索引及后续使用移除：
 
@@ -137,7 +137,7 @@ python -m oriward pipeline ensure --job-id 1
 
 ## JD 分析、简历与独立评审
 
-按 `job-analysis` 阅读完整 JD，从招聘目的、支持对象、2–4 项核心交付理解岗位，再区分硬门槛、可学任务和偏好。招聘动机未知时写推断；`role_focus` 保存简历主线与面试主题。前台结论突出是否值得试、卖点、风险和下一步，底层保留原文和真实门槛；不为刷 A 逐项凑 met。`analysis packet` 默认只给经历索引，随后自行选择相关详情。学历/到岗等可引用断言或资料；复合任务逐项覆盖，未知资格不等于失败。
+用户需要具体岗位评估时，按 `job-analysis` 阅读完整 JD，从招聘目的、支持对象、2–4 项核心交付理解岗位，再区分硬门槛、可学任务和偏好。招聘动机未知时写推断；`role_focus` 保存简历主线与面试主题。前台结论突出是否值得试、卖点、风险和下一步，底层保留原文和真实门槛；不为刷 A 逐项凑 met。`analysis packet` 默认只给经历索引，随后自行选择相关详情。学历/到岗等可引用断言或资料；复合任务逐项覆盖，未知资格不等于失败。
 
 ```text
 python -m oriward analysis draft --job-id 1
@@ -150,22 +150,21 @@ python -m oriward review save --file data/private/review-1.json
 
 只有检查完整 JD 后才设 `coverage_confirmed=true`；未知门槛先取证。评审操作统一见 [analysis-contract](../.agents/skills/job-analysis/references/analysis-contract.md)，输入与等级不变量见 [DATA_MODEL](DATA_MODEL.md)。等级由 CLI 计算，是模拟评审而非雇主结论或录用概率。决定是否推进时，按 [DECISIONS](DECISIONS.md) 保存当时的依据、备选与约束，不能把日程分数当适合度。
 
-按 `resume-builder` 把 finding 对应到新版本，逐条保留同一经历的 `source_texts`：
+按 `resume-builder` 将用户修改或评审发现接到新版本，来源关系在后台保存，`source_texts` 可由 Agent/runtime 维护，不要求用户提供逐字引文：
 
 ```text
 python -m oriward resume revise --file data/private/revision-1.json
 python -m oriward resume history --id 2
 ```
 
-若 `factual_status=pending`，先让用户核对完整改写；明确确认含义仍准确后才运行确认，再重新取得新版本 packet 独立评审：
+正常改写保存为 `factual_status=draft`，可直接生成并本地导出供用户看稿，不调用确认来放行。用户更正直接更新；未知事实不编造。只有用户请求正式模拟评审或再次评估时，才为精确新版本取得 packet：
 
 ```text
-python -m oriward resume confirm --id 2 --human-confirmed
 python -m oriward review packet --resume-id 2 --compact
 python -m oriward review save --file data/private/review-2.json
 ```
 
-没有新证据时最多两轮；保留剩余风险，转向练习、补证或换目标。新增证据、目标、约束或 JD 变化时重取 packet，并为受影响建议创建新的 decision，历史判断保留。
+普通初稿无需完成七阶段评审；正式评审没有新证据时最多两轮；保留剩余风险，转向练习、补证或换目标。新增证据、目标、约束或 JD 变化时重取 packet，并为受影响建议创建新的 decision，历史判断保留。
 
 ## 人工投递与时间线
 
@@ -199,9 +198,9 @@ python -m oriward feedback list --job-id 1
 python -m oriward feedback plan --job-id 1
 ```
 
-保存反馈不改申请状态或提高等级。按计划改版、用户确认并独立复审后，才用 `feedback resolve --id 1 --review-id 2 --note "已完成有谱系的改版与复审"` 关闭反馈；新 review 必须属于关联该反馈且事实已确认的 revision。
+保存反馈不改申请状态或提高等级。需要正式关闭评审反馈时，按计划改版并取得对应新评审，才用 `feedback resolve --id 1 --review-id 2 --note "已完成有谱系的改版与复审"` 关闭反馈；新 review 必须属于关联该反馈的 revision；普通写稿和导出不以此为门槛。
 
-将结构性缺口交给 `learning-planner`：每项有产出、验收标准、日期和投入，课程完成不等于能力。毕业、考试、可实习时间和每周预算只在相关时询问。用户选择方案时按 [DECISIONS](DECISIONS.md) 记录依据；检查整个阶段总负荷，不能把单个任务排得下说成整体排程可行。
+将结构性缺口交给 `learning-planner`：每项有产出、验收标准、日期和投入，课程完成不等于能力。工作、照护、重返职场安排和每周精力按实际情况考虑；毕业、考试与实习时间只在相关时询问。学习任务写清已有能力、补哪项工具/知识、产出、验收与投入，优先小型实践，岗位验证和学习不阻碍当前简历。用户选择方案时按 [DECISIONS](DECISIONS.md) 记录依据；检查整个阶段总负荷，不能把单个任务排得下说成整体排程可行。
 
 ```text
 python -m oriward learning save --file data/private/learning-plan.json
@@ -213,7 +212,7 @@ python -m oriward action unblock --id 1
 python -m oriward action complete --id 1 --human-confirmed --evidence "已完成作品或复盘的位置"
 ```
 
-完成须实际证据或用户确认；新作品仍需按经历契约核实。面试练习交给 `interview-coach`，使用 `interview save --file data/private/interview.json` 保存；只记录用户实际回答，真实/模拟反馈分开，公司 dossier 持续保留来源与日期。
+完成须实际证据或用户确认；新作品按经历契约记录实际完成内容，清晰自述无需另行批准。面试练习交给 `interview-coach`，使用 `interview save --file data/private/interview.json` 保存；只记录用户实际回答，真实/模拟反馈分开，公司 dossier 持续保留来源与日期。
 
 ## 用户反应与定期回顾
 

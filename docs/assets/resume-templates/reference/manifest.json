@@ -1,0 +1,8 @@
+{
+  "fictional": true,
+  "template": "reference",
+  "photo_included": true,
+  "synthetic_portrait": true,
+  "renderer": "Microsoft Word",
+  "source": "scripts/generate_template_samples.py"
+}

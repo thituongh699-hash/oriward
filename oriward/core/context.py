@@ -84,16 +84,19 @@ def _experience_base(conn) -> dict:
     from .. import experience_library
     rows = experience_library.list_current(conn=conn)
     approved = 0
+    usable = 0
     recent = []
     for row in rows:
         data = row["data"] if isinstance(row["data"], dict) else deserialize(row["data"])
+        can_use = bool(experience_library.usable_facts(data)) and not data.get("needs_review")
+        usable += int(can_use)
         if data.get("approved_for_resume") and not data.get("needs_review"):
             approved += 1
         if len(recent) < 3:
             recent.append({"id": row["id"], "event": str(data.get("event", ""))[:40],
-                           "approved": bool(data.get("approved_for_resume")) and not data.get("needs_review"),
+                           "approved": bool(data.get("approved_for_resume")), "usable": can_use,
                            "version": data.get("version", 1), "needs_review": bool(data.get("needs_review"))})
-    return {"total": len(rows), "approved_for_resume": approved, "recent": recent}
+    return {"total": len(rows), "approved_for_resume": approved, "usable": usable, "recent": recent}
 
 
 def _directions(conn) -> list[dict]:

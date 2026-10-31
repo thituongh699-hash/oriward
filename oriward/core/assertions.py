@@ -47,7 +47,7 @@ DEFAULT_STATUS = {
     "legacy_profile": "user_stated",
     "feedback": "user_stated",
     "document": "document_verified",
-    "experience": "user_confirmed",
+    "experience": "inferred",
     "model_inference": "inferred",
     "reflection": "inferred",
     "external_source": "inferred",
@@ -218,7 +218,7 @@ def revise(assertion_id: int, *, value=None, confidence: str | None = None,
         new_value = deserialize(old["value_json"]) if value is None else value
         new_confidence = confidence or old["confidence"]
         _require_choice("confidence", new_confidence, CONFIDENCE)
-        status = DEFAULT_STATUS[source_type] if source_type in NON_USER_SOURCES else "user_stated"
+        status = DEFAULT_STATUS[source_type]
         inherited_links = links_of(conn, assertion_id) if links is None else links
         prepared_links = _prepare_links(conn, inherited_links)
         new_source_ref = source_ref or old["source_ref"]

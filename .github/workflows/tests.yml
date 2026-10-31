@@ -89,6 +89,10 @@ jobs:
         if: matrix.python-version == '3.13'
         run: python -m pip install -e ".[documents]"
 
+      - name: Fictional experience translation with document export
+        if: matrix.os == 'windows-latest' && matrix.python-version == '3.13'
+        run: python scripts/demo_experience_translation.py --output outputs/ci-experience-translation --renderer reportlab
+
       - name: Document export behavior
         if: matrix.python-version == '3.13'
         run: |
@@ -125,7 +129,7 @@ jobs:
               "docs/assets/oriward-poster.png",
               "scripts/render_readme_assets.py",
           } <= files
-          for template in ("modern-cn", "clean"):
+          for template in ("modern-cn", "clean", "reference"):
               assert {f"docs/assets/resume-templates/{template}/sample.{ext}" for ext in ("docx", "pdf")} <= files
               assert f"docs/assets/resume-templates/{template}/preview.png" in files
           assert not any(".." in path.parts or path.is_absolute() for path in names)

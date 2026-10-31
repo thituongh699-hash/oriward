@@ -140,7 +140,7 @@ class AssessmentTests(unittest.TestCase):
     def test_save_analysis_computes_outcome_and_packet_filters_evidence(self):
         job_id = self.add_job()
         approved = self.add_experience()
-        self.add_experience(approved=False)
+        unapproved = self.add_experience(approved=False)
         analysis_id = self.save_analysis(job_id, [
             self.requirement("python", "Python is required", "hard_gate", "met", [approved]),
             self.requirement("communication", "Communication is preferred", "preferred", "gap"),
@@ -151,20 +151,18 @@ class AssessmentTests(unittest.TestCase):
         self.assertEqual(saved["confidence"], "medium")
         packet = a.analysis_packet(job_id)
         self.assertEqual(packet["latest_analysis"]["id"], analysis_id)
-        self.assertEqual([item["id"] for item in packet["approved_experiences"]], [approved])
+        self.assertEqual({item["id"] for item in packet["approved_experiences"]}, {approved, unapproved})
 
-    def test_analysis_rejects_unapproved_or_unverified_met_evidence(self):
+    def test_analysis_accepts_self_reports_without_approval(self):
         job_id = self.add_job()
         unapproved = self.add_experience(approved=False)
-        with self.assertRaisesRegex(s.ValidationError, "not approved"):
-            self.save_analysis(job_id, [
-                self.requirement("python", "Python is required", "hard_gate", "met", [unapproved])
-            ])
-        unverified = self.add_experience(status="unverified")
-        with self.assertRaisesRegex(s.ValidationError, "verified non-empty evidence"):
-            self.save_analysis(job_id, [
-                self.requirement("python", "Python is required", "hard_gate", "met", [unverified])
-            ])
+        self.assertTrue(self.save_analysis(job_id, [
+            self.requirement("python", "Python is required", "hard_gate", "met", [unapproved])
+        ]))
+        mixed = self.add_experience(status="unverified")
+        self.assertTrue(self.save_analysis(job_id, [
+            self.requirement("python", "Python is required", "hard_gate", "met", [mixed])
+        ]))
 
     def test_grades_a_b_c_d(self):
         cases = [
@@ -312,9 +310,12 @@ class AssessmentTests(unittest.TestCase):
             a.save_review(self.review(resume, analysis_id, [resolved[0]["id"]], findings=[finding]))
 
     def test_review_rejects_met_evidence_not_selected_into_resume(self):
-        _, _, analysis_id, resume, resolved = self.prepared([
+        job_id, (first, second), analysis_id, resume, resolved = self.prepared([
             self.requirement("python", "Python is required", "hard_gate", "met", ["EXP2"])
         ], selected_ids=["EXP1"])
+        from oriward.resume_content import compose
+        resume = compose(job_id, {"reason": "用户只展示第一段", "sections": [{"experience_id": first}],
+                                  "exclude_experience_ids": [second]})
         with self.assertRaisesRegex(s.ValidationError, "not selected"):
             a.save_review(self.review(resume, analysis_id, [resolved[0]["id"]]))
 
@@ -358,7 +359,7 @@ class AssessmentTests(unittest.TestCase):
         result = a.save_review(self.review(resume, analysis_id, [resolved[0]["id"]]))
         self.assertEqual(result["grade"], "A")
 
-    def test_pending_revision_needs_evidence(self):
+    def test_legacy_pending_revision_does_not_gate_optional_review(self):
         _, _, analysis_id, resume, resolved = self.prepared([
             self.requirement("python", "Python is required", "hard_gate", "met", ["EXP1"])
         ])
@@ -366,13 +367,12 @@ class AssessmentTests(unittest.TestCase):
         with connect() as db:
             ensure_schema(db)
             db.execute(
-                "INSERT INTO resume_versions VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO resume_versions VALUES (?,?,?,?,?,?,?,?)",
                 (resume["id"], resume["id"], None, "[]", "rewrite", "[]", "pending", "2026-01-01T00:00:00+00:00"),
             )
         result = a.save_review(self.review(resume, analysis_id, [resolved[0]["id"]]))
-        self.assertIsNone(result["grade"])
-        self.assertEqual(result["status"], "NEEDS_EVIDENCE")
-        self.assertIn("pending factual confirmation", result["reasons"][0])
+        self.assertEqual(result["grade"], "A")
+        self.assertEqual(result["status"], "SIMULATED")
 
     def test_review_packet_returns_exact_content_hash_template_and_history(self):
         _, _, analysis_id, resume, resolved = self.prepared([

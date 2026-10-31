@@ -1,23 +1,23 @@
 ---
 name: resume-builder
-description: Build, revise and confirm job-specific Markdown resume versions from approved experience, preserving claim provenance and independent review. Use for resume content and versions, not sending applications or inventing qualifications.
+description: Translate real career histories into complete, focused Markdown resumes, preserving sources and versions while delivering a full draft for user edits. Use for resume content, not external submission or invented qualifications.
 ---
 
-# Truthful resume builder
+# Resume builder
 
-Use real coursework, projects, campus roles, volunteering and internships at their actual scope. Distinguish personal ownership from group results; limited work history calls for better evidence or learning tasks, never fabricated employment or seniority.
+Turn what the user actually did into language a new role understands. Work, business, projects, education and informal responsibilities can carry transferable value. Clear self-report is sufficient; write confidently within it. Never invent duties, titles, tools, dates, metrics or personal ownership.
 
-1. Start with `resume tailor-packet --job-id <id>`: read the bounded experience index, target company/JD and latest analysis, then selected experience details. Identify the role purpose and 2–4 core deliverables. Select facts for their relevance to these deliverables, including transferable coursework and informal projects. Never simply paste the library into every resume.
-2. Rewrite the headline, summary, experience emphasis/order and bullets for this company and role. Explain the selection and wording choices. Use `python -m oriward resume compose --job-id <id> --file <json>` to save the final tailored content directly; no raw intermediate resume is required. `resume build` remains a compatibility fallback. Record the returned ID and path.
-3. Load [references/resume-review.md](references/resume-review.md) for composition and revision input. Every claim maps to exact source quotations; final wording need not repeat them. Job-specific phrasing stays in the resume, not in universal experience facts. Excluded or stale experiences cannot be sources.
-4. Strengthen professional action wording, ordering and transferable relevance while preserving scope. Declare sourced wording-only changes explicitly; they inherit factual approval. List added duties, tools, numbers, causal results or dates separately and show pending facts together. Only after direct factual confirmation run `python -m oriward resume confirm --id <id> --human-confirmed`; never manufacture that confirmation. Ask the user to inspect the whole final draft before use.
-5. Inspect `resume history --id <id>`. Use `$job-analysis` for independent review of this exact version before calling it ready; a revision never inherits its base grade. Review procedure and stop conditions live in [the analysis contract](../job-analysis/references/analysis-contract.md).
-6. For Word/PDF delivery, read `../document-export/SKILL.md` and export the approved resume ID using its templates. No resume-file hash confirmation is required. Each job retains its current Markdown plus three historical files; older bodies may be pruned while source/version metadata remains queryable. Use cleanup dry-run before applying maintenance to existing files.
+1. Read `context brief`, current profile and the complete experience index, paging until complete; load detail in bounded batches. Use `resume tailor-packet` for a general resume, or add `--job-id <id>` for a saved job and understand the role purpose and 2–4 core deliverables. Follow its `next_offset`/`has_more` with `--offset` and `--budget`; a bounded packet is not proof that the whole library was read. Without a target, prepare a general draft from known history; choosing a direction or completing formal analysis is not a prerequisite.
+2. Build a complete skeleton: existing name/contact details, education and major career stages. Connect actual actions to the target's deliverables rather than matching titles or keywords. Expand direct relevance, explain transferable work across industries and summarise other major stages. Consolidate small events only with clear organisation/time/ownership and source links. Honour explicit exclusions. Keep work chronology, real overlaps and gaps; do not invent dates or expose private gap reasons.
+3. Respect explicit template preferences, including an existing personal reference layout. That person's template is not a universal structure. Otherwise arrange sections for this history: experienced workers may lead with work; students may lead with education/projects. Do not create empty certificate or interest sections. Preserve education already supplied.
+4. Read [references/resume-review.md](references/resume-review.md); save through supported CLI composition/revision commands and report the actual receipt ID/path. Maintain sources internally; users need not provide exact quotes, approve experiences or repeat facts. Professional rewriting and grounded synthesis go directly into the full draft. If a number or ownership point is unclear, use known facts and ask only that point if needed; never freeze the entire draft.
+5. Check omissions, chronology, scope, repetition, readable headings and natural language; repair what can be repaired. Deliver the complete draft for reading and edits without a confirmation gate. User corrections take effect directly. Formal simulated hiring review is optional when requested for assessment; a draft does not require seven stages or a grade.
+6. For Word/PDF, use [document-export](../document-export/SKILL.md), including local initial-draft preview. Inspect every rendered page for sparse content, detached headings, incorrect links and forced breaks. Adjust detail/density before shrinking type or forcing one page. Preserve version/source history; cleanup maintenance uses dry-run first.
 
-Report `DRAFT — not submitted`, exact version IDs, paths, evidence IDs, pending confirmations and risks. External sending requires explicit authorization for the named destination.
+Report local/unsubmitted status, version and paths briefly; keep source IDs, ratings and internal paths out of candidate-facing content. Drafting/export never authorizes upload or submission to a destination.
 
 ## Career Twin Core contract
 
-- A `skill_hypothesis` is not a resume source unless user-confirmed and linked to an experience; nothing in the Twin substitutes for factual wording approval.
-- Register follow-up preparation using `action propose` (`action_type:prepare`, with `suggestion_reason`). Report version and pending facts.
-- Use the [decision contract](../../../docs/DECISIONS.md) only when recommending or reassessing the preparation/target choice. Shared rules are in `AGENTS.md`.
+- Model guesses remain inferred, not user facts. Faithful professional synthesis of stated actions needs no separate factual approval.
+- Register useful preparation/learning follow-ups with `action propose` and `suggestion_reason`; market validation and learning support the new direction without blocking the current resume.
+- Use the [decision contract](../../../docs/DECISIONS.md) for actual target/preparation recommendations. Shared privacy and external-action rules remain in `AGENTS.md`.

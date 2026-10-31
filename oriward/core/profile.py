@@ -5,7 +5,7 @@ from ..db import deserialize
 from .assertions import USER_BACKED, NON_USER_SOURCES
 
 
-IDENTITY_FIELDS = ("display_name", "location", "target_role", "target_roles", "contact", "summary_verified")
+IDENTITY_FIELDS = ("display_name", "location", "target_role", "target_roles", "contact", "summary_verified", "education", "education_history", "certifications")
 
 
 def _plain(value):

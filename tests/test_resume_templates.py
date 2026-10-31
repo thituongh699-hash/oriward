@@ -1,8 +1,11 @@
 import importlib.util
+import json
+import os
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / ".agents" / "skills" / "document-export" / "scripts" / "export_documents.py"
@@ -22,7 +25,7 @@ class ResumeTemplateTests(unittest.TestCase):
              "bullets": ["使用 Python 完成清理和图表制作"]},
             {"heading": "Interests", "bullets": ["徒步"]}]}
 
-    def test_both_templates_record_layout_and_renderer(self):
+    def test_all_templates_record_layout_and_renderer(self):
         try:
             exporter._choose_font(exporter._all_text(exporter._normalise_document(self.doc)), None, require_pdf=True)
         except exporter.ExportError as exc:
@@ -65,7 +68,7 @@ class ResumeTemplateTests(unittest.TestCase):
         result = exporter.export_document(document=self.doc, output_dir=self.root / "one-page", page_policy="a4-1")
         self.assertEqual(result["page_policy"], "a4-1")
 
-    def test_optional_photo_is_embedded_only_in_modern_template(self):
+    def test_optional_photo_is_embedded_only_in_photo_capable_templates(self):
         try:
             import docx
             exporter._choose_font(exporter._all_text(exporter._normalise_document(self.doc)), None)
@@ -76,10 +79,40 @@ class ResumeTemplateTests(unittest.TestCase):
         photo = ROOT / "docs/assets/resume-templates/clean/preview.png"
         if not photo.is_file():
             self.skipTest("bundled preview image unavailable")
-        target = self.root / "photo"
-        exporter.export_document(document=self.doc, output_dir=target, formats=("docx",),
-                                 template="modern-cn", photo=photo)
-        self.assertEqual(len(docx.Document(target / "document.docx").inline_shapes), 1)
+        for template in ("modern-cn", "reference"):
+            target = self.root / template
+            exporter.export_document(document=self.doc, output_dir=target, formats=("docx",),
+                                     template=template, photo=photo)
+            self.assertEqual(len(docx.Document(target / "document.docx").inline_shapes), 1)
+            no_photo = self.root / (template + "-no-photo")
+            exporter.export_document(document=self.doc, output_dir=no_photo, formats=("docx",), template=template)
+            self.assertEqual(len(docx.Document(no_photo / "document.docx").inline_shapes), 0)
+        with self.assertRaisesRegex(exporter.ExportError, "INVALID_PHOTO"):
+            exporter.export_document(document=self.doc, output_dir=self.root / "clean-photo", formats=("docx",),
+                                     template="clean", photo=photo)
+
+    def test_generator_composes_complete_registered_content_without_markdown_edits(self):
+        spec = importlib.util.spec_from_file_location("template_sample_generator", ROOT / "scripts/generate_template_samples.py")
+        generator = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(generator)
+        except ImportError:
+            self.skipTest("Pillow unavailable for sample generator")
+        from oriward import resume_content
+        with patch.dict(os.environ, {"ORIWARD_DB": str(self.root / "samples.sqlite3"),
+                                    "ORIWARD_OUTPUT_DIR": str(self.root / "resumes")}):
+            receipt = generator.create_sample_resume()
+            text = Path(receipt["path"]).read_text(encoding="utf-8")
+            self.assertEqual([line for line in text.splitlines() if line.startswith("## ")],
+                             ["## 个人优势", "## 教育经历", "## 项目经历", "## 专业技能", "## 个人兴趣"])
+            for expected in ("虚构大学", "统计学学士", "概率统计", "校园出行问卷分析", "2025.03–2025.06",
+                             "课程图书借阅观察", "2024.09–2024.12", "Excel 数据透视表", "徒步"):
+                self.assertIn(expected, text)
+            composition = resume_content.composition_for_resume(receipt["id"])
+            self.assertEqual(len(composition["sections"]), 2)
+            # The registry digest proves the file is the direct composed artifact.
+            import hashlib
+            self.assertEqual(receipt["sha256"], hashlib.sha256(Path(receipt["path"]).read_bytes()).hexdigest())
 
     def test_bundled_samples_are_fictional_and_have_no_external_file_links(self):
         try:
@@ -92,6 +125,9 @@ class ResumeTemplateTests(unittest.TestCase):
             manifest = (folder / "manifest.json").read_text(encoding="utf-8")
             self.assertIn('"fictional": true', manifest)
             self.assertNotIn(str(ROOT), manifest)
+            data = json.loads(manifest)
+            self.assertEqual(data["photo_included"], template in {"modern-cn", "reference"})
+            self.assertIn(data["renderer"], {"Microsoft Word", "LibreOffice", "ReportLab"})
             with zipfile.ZipFile(folder / "sample.docx") as package:
                 for name in package.namelist():
                     if name.endswith(".rels"):
@@ -100,14 +136,30 @@ class ResumeTemplateTests(unittest.TestCase):
                 all_xml = b"\n".join(package.read(name) for name in package.namelist() if name.endswith(".xml"))
                 self.assertNotIn(str(ROOT).encode(), all_xml)
                 self.assertNotIn(b"C:\\Users\\", all_xml)
-            text = "\n".join(page.extract_text() or "" for page in PdfReader(folder / "sample.pdf").pages)
-            for heading in ("教育经历", "项目经历", "技能", "兴趣"):
+                core = ET.fromstring(package.read("docProps/core.xml"))
+                values = {item.tag.rsplit("}", 1)[-1]: item.text for item in core}
+                self.assertEqual(values["creator"], "Oriward")
+                self.assertEqual(values["lastModifiedBy"], "Oriward")
+                self.assertEqual(sum(name.startswith("word/media/") for name in package.namelist()),
+                                 int(template in {"modern-cn", "reference"}))
+            pdf = PdfReader(folder / "sample.pdf")
+            self.assertEqual(len(pdf.pages), 1)
+            self.assertEqual(pdf.metadata.author, "Oriward")
+            self.assertEqual(pdf.metadata.title, "Fictional resume template sample")
+            self.assertIsNone(pdf.xmp_metadata)
+            self.assertNotIn(str(ROOT), str(pdf.metadata))
+            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+            self.assertNotRegex(text + str(pdf.metadata), r"(?i)\b[a-z]:[\\/]|file://")
+            for page in pdf.pages:
+                for reference in page.get("/Annots", []):
+                    action = reference.get_object().get("/A", {})
+                    self.assertNotIn(action.get("/S"), {"/Launch", "/GoToR"})
+                    self.assertNotRegex(str(action.get("/URI", "")), r"(?i)^file:|^[a-z]:[\\/]")
+            for heading in ("教育经历", "项目经历", "专业技能", "个人兴趣"):
                 self.assertIn(heading, text)
             self.assertLess(text.index("技能"), text.index("兴趣"))
-            if template == "modern-cn":
-                self.assertIn("校园出行问卷分析", text)
-                self.assertIn("课程图书借阅观察", text)
-                self.assertIn('"renderer": "Microsoft Word"', manifest)
+            for expected in ("校园出行问卷分析", "课程图书借阅观察", "2025.03", "2024.09", "虚构大学", "fictional@example.test"):
+                self.assertIn(expected, text)
 
 
 if __name__ == "__main__":

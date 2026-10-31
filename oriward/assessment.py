@@ -171,21 +171,7 @@ def _validate_company_context(items):
 
 def _verified_experience(db, experience_id):
     from . import experience_library
-    row = one(db, "experiences", int(experience_id))
-    experience = deserialize(row["data"])
-    if not experience.get("approved_for_resume"):
-        raise services.ValidationError(f"Experience {experience_id} not approved for resume")
-    evidence = experience.get("evidence")
-    if not isinstance(evidence, list) or not any(
-        isinstance(item, dict)
-        and item.get("status") in {"user_stated", "user_confirmed", "document_verified"}
-        and isinstance(item.get("claim"), str)
-        and item["claim"].strip()
-        for item in evidence
-    ):
-        raise services.ValidationError(f"Experience {experience_id} lacks verified non-empty evidence")
-    experience_library.validate_for_resume(db, int(experience_id))
-    return experience
+    return experience_library.validate_for_resume(db, int(experience_id))
 
 
 def _fingerprint(value):
@@ -487,13 +473,13 @@ def _latest_structured_analysis(db, job_id):
 
 
 def analysis_packet(job_id):
-    """Return the current JD, approved evidence, and latest structured analysis."""
+    """Return the JD, usable self-reported material and structured analysis."""
     job_id = int(job_id)
     job = services.get_job(job_id)
     from . import experience_library
     with connect() as db:
         evidence_index = experience_library.index(conn=db, budget=2200)
-        experiences = [item for item in evidence_index["items"] if item["approved"]]
+        experiences = [item for item in evidence_index["items"] if item.get("usable")]
         latest = _latest_structured_analysis(db, job_id)
         assertion_evidence = []
         assertion_count = db.execute("SELECT count(*) FROM user_assertions WHERE valid_to='' AND epistemic_status IN ('user_stated','user_confirmed','document_verified') AND assertion_type IN ('fact','constraint')").fetchone()[0]
@@ -509,7 +495,8 @@ def analysis_packet(job_id):
     return {
         "job": {"id": job_id, **job},
         "job_sha256": _job_sha256(job),
-        "approved_experiences": experiences,
+        "usable_experiences": experiences,
+        "approved_experiences": experiences,  # Legacy alias, not an approval queue.
         "experience_index": evidence_index,
         "assertion_evidence": assertion_evidence,
         "assertion_evidence_scope": {"total": assertion_count, "shown": len(assertion_evidence), "complete": assertion_count == len(assertion_evidence)},
@@ -874,15 +861,7 @@ def save_review(data):
                     f"Met requirement {requirement_id} cites evidence not selected into this resume"
                 )
 
-        revision_pending = False
-        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='resume_versions'").fetchone():
-            version = db.execute(
-                "SELECT factual_status FROM resume_versions WHERE resume_id=?", (resume_id,)
-            ).fetchone()
-            revision_pending = bool(version and version["factual_status"] != "approved")
-        grade, status, reasons = _grade_review(
-            analysis, stages, findings, mismatch, job, revision_pending=revision_pending
-        )
+        grade, status, reasons = _grade_review(analysis, stages, findings, mismatch, job)
         saved = {
             "resume_id": resume_id,
             "analysis_id": analysis_row["id"],

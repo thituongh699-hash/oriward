@@ -3,7 +3,8 @@
 
 The core accepts a deliberately small JSON document model.  It does not
 interpret Markdown or HTML; resume Markdown is accepted only through the
-strict parser below after source freshness and factual revision checks pass.
+strict parser below. Local draft previews retain source/version diagnostics
+without requiring factual approval or a simulated hiring review.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import struct
@@ -57,11 +59,14 @@ def _normalise_document(raw):
     for number, section in enumerate(sections, 1):
         if not isinstance(section, dict):
             _error("INVALID_SCHEMA", f"sections[{number}] must be an object")
-        unknown = set(section) - {"heading", "paragraphs", "bullets", "table"}
+        unknown = set(section) - {"heading", "paragraphs", "bullets", "table", "level", "meta"}
         if unknown:
             _error("INVALID_SCHEMA", f"sections[{number}] unknown fields: " + ", ".join(sorted(unknown)))
         item = {"heading": _string(section.get("heading"), f"sections[{number}].heading"),
-                "paragraphs": [], "bullets": [], "table": None}
+                "paragraphs": [], "bullets": [], "table": None,
+                "level": section.get("level", 1), "meta": _string(section.get("meta"), f"sections[{number}].meta")}
+        if type(item["level"]) is not int or item["level"] not in {1, 2}:
+            _error("INVALID_SCHEMA", f"sections[{number}].level must be 1 or 2")
         for key in ("paragraphs", "bullets"):
             values = section.get(key, [])
             if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
@@ -93,6 +98,8 @@ TEMPLATES = {
                   "section": 10.5, "body": 10.5, "leading": 13.1, "margin": 1.7},
     "clean": {"label": "简洁无照片", "accent": "#354B5E", "title": 20, "heading": 12.5,
               "section": 10.5, "body": 10.5, "leading": 13.1, "margin": 1.7},
+    "reference": {"label": "个人参考模板", "accent": "#222222", "title": 21, "heading": 13.0,
+                  "section": 10.5, "body": 10.2, "leading": 13.0, "margin": 1.35},
 }
 
 
@@ -115,6 +122,7 @@ def _renderer_candidates():
 
 
 def _render_docx_pdf(docx_path, pdf_path, renderer, candidate):
+    docx_path, pdf_path = Path(docx_path).resolve(), Path(pdf_path).resolve()
     name, executable = candidate
     if name == "libreoffice":
         subprocess.run([str(executable), "--headless", "--convert-to", "pdf", "--outdir", str(pdf_path.parent),
@@ -125,8 +133,9 @@ def _render_docx_pdf(docx_path, pdf_path, renderer, candidate):
         return
     powershell = shutil.which("pwsh") or shutil.which("powershell") or r"C:\Program Files\PowerShell\7\pwsh.exe"
     script = ("param([string]$InputPath,[string]$OutputPath)\n$ErrorActionPreference='Stop'\n"
-              "$w=New-Object -ComObject Word.Application\ntry { $w.Visible=$false; $d=$w.Documents.Open($InputPath); "
-              "try { $d.SaveAs($OutputPath,17) } finally { $d.Close(0) } } finally { $w.Quit() }\n")
+              "$w=New-Object -ComObject Word.Application\ntry { $w.Visible=$false; $w.DisplayAlerts=0; "
+              "$d=$w.Documents.Open($InputPath); try { $d.ExportAsFixedFormat($OutputPath,17) } "
+              "finally { $d.Close(0) } } finally { $w.Quit() }\n")
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".ps1", delete=False) as handle:
         handle.write(script)
         script_path = Path(handle.name)
@@ -164,6 +173,8 @@ def _all_text(document):
         values.append(section["heading"])
         values.extend(section["paragraphs"])
         values.extend(section["bullets"])
+        if section["meta"]:
+            values.append(section["meta"])
         if section["table"]:
             values.extend(section["table"]["headers"])
             for row in section["table"]["rows"]:
@@ -345,6 +356,7 @@ def _write_docx(document, stream, font_path, font_family, template, photo=None):
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.oxml import OxmlElement
         from docx.oxml.ns import qn
+        from docx.opc.constants import RELATIONSHIP_TYPE
         from docx.shared import Cm, Pt, RGBColor
     except ImportError as exc:
         _error("MISSING_DEPENDENCY", "DOCX export needs python-docx: " + str(exc))
@@ -355,7 +367,7 @@ def _write_docx(document, stream, font_path, font_family, template, photo=None):
     section.top_margin = section.bottom_margin = Cm(layout["margin"])
     section.left_margin = section.right_margin = Cm(1.8)
     font_name = font_family
-    for style_name in ("Normal", "Title", "Subtitle", "Heading 1", "List Bullet"):
+    for style_name in ("Normal", "Title", "Subtitle", "Heading 1", "Heading 2", "List Bullet"):
         style = doc.styles[style_name]
         style.font.name, style.font.color.rgb = font_name, RGBColor(0, 0, 0)
         style._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
@@ -367,14 +379,18 @@ def _write_docx(document, stream, font_path, font_family, template, photo=None):
     if title_borders is not None:
         title_properties.remove(title_borders)
     doc.styles["Normal"].font.size = Pt(layout["body"])
-    doc.styles["Normal"].paragraph_format.line_spacing = 1.18
-    doc.styles["Normal"].paragraph_format.space_after = Pt(2)
-    accent = RGBColor.from_string(layout["accent"].lstrip("#"))
-    doc.styles["Title"].font.size, doc.styles["Heading 1"].font.size = Pt(layout["title"]), Pt(layout["heading"])
-    doc.styles["Heading 1"].font.color.rgb = accent
+    doc.styles["Normal"].paragraph_format.line_spacing = 1.12
+    doc.styles["Normal"].paragraph_format.space_after = Pt(1)
+    doc.styles["Title"].font.size = Pt(layout["title"])
+    doc.styles["Title"].font.bold = True
+    doc.styles["Subtitle"].font.italic = False
+    doc.styles["Subtitle"].font.size = Pt(10)
+    doc.styles["Heading 1"].font.size = Pt(layout["heading"])
+    doc.styles["Heading 1"].font.bold = True
+    doc.styles["Heading 1"].font.color.rgb = RGBColor(0, 0, 0)
     doc.styles["Heading 1"].paragraph_format.keep_with_next = True
-    doc.styles["Heading 1"].paragraph_format.space_before = Pt(9)
-    doc.styles["Heading 1"].paragraph_format.space_after = Pt(3)
+    doc.styles["Heading 1"].paragraph_format.space_before = Pt(5)
+    doc.styles["Heading 1"].paragraph_format.space_after = Pt(2)
     heading_ppr = doc.styles["Heading 1"]._element.get_or_add_pPr()
     borders = heading_ppr.find(qn("w:pBdr"))
     if borders is None:
@@ -384,20 +400,57 @@ def _write_docx(document, stream, font_path, font_family, template, photo=None):
     bottom.set(qn("w:val"), "single")
     bottom.set(qn("w:sz"), "4")
     bottom.set(qn("w:space"), "2")
-    bottom.set(qn("w:color"), layout["accent"].lstrip("#"))
+    bottom.set(qn("w:color"), "B7B7B7")
     borders.append(bottom)
+    doc.styles["Heading 2"].font.size = Pt(layout["section"])
+    doc.styles["Heading 2"].font.bold = True
+    doc.styles["Heading 2"].paragraph_format.keep_with_next = True
+    doc.styles["Heading 2"].paragraph_format.space_before = Pt(5)
+    doc.styles["Heading 2"].paragraph_format.space_after = Pt(0)
+
+    def add_inline(paragraph, value):
+        pattern = re.compile(r"\[([^\]]+)\]\((https://[^)\s]+)\)")
+        cursor = 0
+        for match in pattern.finditer(value):
+            if match.start() > cursor:
+                paragraph.add_run(value[cursor:match.start()])
+            relation = paragraph.part.relate_to(match.group(2), RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
+            hyperlink = OxmlElement("w:hyperlink")
+            hyperlink.set(qn("r:id"), relation)
+            run = OxmlElement("w:r")
+            properties = OxmlElement("w:rPr")
+            color = OxmlElement("w:color")
+            color.set(qn("w:val"), "0563C1")
+            properties.append(color)
+            underline = OxmlElement("w:u")
+            underline.set(qn("w:val"), "single")
+            properties.append(underline)
+            run.append(properties)
+            text = OxmlElement("w:t")
+            text.text = match.group(1)
+            run.append(text)
+            hyperlink.append(run)
+            paragraph._p.append(hyperlink)
+            cursor = match.end()
+        if cursor < len(value):
+            paragraph.add_run(value[cursor:])
     if document["title"]:
         if photo:
             header = doc.add_table(rows=1, cols=2)
             header.autofit = False
-            header.columns[0].width, header.columns[1].width = Cm(14.8), Cm(2.6)
-            name = header.cell(0, 0).paragraphs[0]
+            header.add_column(Cm(2.6))
+            header.columns[0].width, header.columns[1].width, header.columns[2].width = Cm(1.8), Cm(13.0), Cm(2.6)
+            header.cell(0, 0).width = Cm(1.8)
+            header.cell(0, 1).width = Cm(13.0)
+            header.cell(0, 2).width = Cm(2.6)
+            name = header.cell(0, 1).paragraphs[0]
             name.style = doc.styles["Title"]
-            name.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            name.alignment = WD_ALIGN_PARAGRAPH.CENTER
             name.add_run(document["title"])
             if document["subtitle"]:
-                header.cell(0, 0).add_paragraph(document["subtitle"], style="Subtitle")
-            photo_para = header.cell(0, 1).paragraphs[0]
+                subtitle = header.cell(0, 1).add_paragraph(document["subtitle"], style="Subtitle")
+                subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            photo_para = header.cell(0, 2).paragraphs[0]
             photo_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
             photo_para.add_run().add_picture(str(photo), width=Cm(2.6))
             tbl_pr = header._tbl.tblPr
@@ -408,18 +461,32 @@ def _write_docx(document, stream, font_path, font_family, template, photo=None):
                 borders.append(border)
             tbl_pr.append(borders)
         else:
-            doc.add_paragraph(document["title"], style="Title").alignment = WD_ALIGN_PARAGRAPH.LEFT
+            title_paragraph = doc.add_paragraph(document["title"], style="Title")
+            title_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             if document["subtitle"]:
-                doc.add_paragraph(document["subtitle"], style="Subtitle")
+                for line in document["subtitle"].splitlines():
+                    p = doc.add_paragraph(style="Subtitle")
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    p.add_run(line)
     elif document["subtitle"]:
         doc.add_paragraph(document["subtitle"], style="Subtitle")
     for section_data in document["sections"]:
         if section_data["heading"]:
-            doc.add_paragraph(section_data["heading"], style="Heading 1")
+            doc.add_paragraph(section_data["heading"], style="Heading 1" if section_data["level"] == 1 else "Heading 2")
+        if section_data["meta"]:
+            meta = doc.add_paragraph()
+            meta.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            meta.paragraph_format.keep_with_next = True
+            meta.paragraph_format.space_after = Pt(2)
+            run = meta.add_run(section_data["meta"])
+            run.font.size = Pt(9)
+            run.font.color.rgb = RGBColor(100, 100, 100)
         for paragraph in section_data["paragraphs"]:
-            doc.add_paragraph(paragraph)
+            p = doc.add_paragraph()
+            add_inline(p, paragraph)
         for bullet in section_data["bullets"]:
-            doc.add_paragraph(bullet, style="List Bullet")
+            p = doc.add_paragraph(style="List Bullet")
+            add_inline(p, bullet)
         table_data = section_data["table"]
         if table_data:
             table = doc.add_table(rows=1, cols=len(table_data["headers"]))
@@ -444,7 +511,7 @@ def _write_docx(document, stream, font_path, font_family, template, photo=None):
 def _write_pdf(document, stream, font_path, template, photo=None):
     try:
         from reportlab.lib import colors
-        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import cm
@@ -465,33 +532,51 @@ def _write_pdf(document, stream, font_path, template, photo=None):
     layout = TEMPLATES[template]
     normal = ParagraphStyle("ExportNormal", parent=styles["Normal"], fontName=face, fontSize=layout["body"],
                             leading=layout["leading"], textColor=colors.black, wordWrap="CJK", alignment=TA_LEFT)
-    title = ParagraphStyle("ExportTitle", parent=normal, fontSize=layout["title"], leading=24, spaceAfter=7)
-    subtitle = ParagraphStyle("ExportSubtitle", parent=normal, fontSize=11, leading=14, spaceAfter=5)
-    heading = ParagraphStyle("ExportHeading", parent=normal, fontSize=layout["heading"], leading=15, spaceBefore=8,
-                             spaceAfter=3, textColor=colors.HexColor(layout["accent"]), keepWithNext=True)
+    title = ParagraphStyle("ExportTitle", parent=normal, fontSize=layout["title"], leading=24, spaceAfter=3,
+                           alignment=TA_CENTER, textColor=colors.black)
+    subtitle = ParagraphStyle("ExportSubtitle", parent=normal, fontSize=10, leading=13, spaceAfter=2,
+                              alignment=TA_CENTER)
+    heading = ParagraphStyle("ExportHeading", parent=normal, fontSize=layout["heading"], leading=15,
+                             spaceBefore=7, spaceAfter=3, textColor=colors.black, keepWithNext=True)
+    subheading = ParagraphStyle("ExportSubheading", parent=normal, fontSize=layout["section"], leading=13,
+                                spaceBefore=5, spaceAfter=0, textColor=colors.black, keepWithNext=True)
+    metadata = ParagraphStyle("ExportMetadata", parent=normal, fontSize=9, leading=11,
+                              textColor=colors.HexColor("#666666"), alignment=TA_RIGHT, keepWithNext=True)
     bullet = ParagraphStyle("ExportBullet", parent=normal, leftIndent=14, firstLineIndent=-9, spaceAfter=2)
     def paragraph(value, style=normal):
-        return Paragraph(escape(value).replace("\n", "<br/>"), style)
+        pattern = re.compile(r"\[([^\]]+)\]\((https://[^)\s]+)\)")
+        escaped = escape(value)
+        escaped = pattern.sub(lambda m: f'<link href="{escape(m.group(2))}" color="#0563C1"><u>{escape(m.group(1))}</u></link>', escaped)
+        return Paragraph(escaped.replace("\n", "<br/>"), style)
 
     def section_heading(value):
         from reportlab.platypus import HRFlowable, KeepTogether
         return KeepTogether([paragraph(value, heading), HRFlowable(width="100%", thickness=0.45,
-            color=colors.HexColor(layout["accent"]), spaceBefore=0, spaceAfter=3)])
+            color=colors.HexColor("#B7B7B7"), spaceBefore=0, spaceAfter=3)])
     story = []
     if document["title"]:
         if photo:
             from reportlab.platypus import Image, Table, TableStyle
-            identity = [[paragraph(document["title"], title), Image(str(photo), width=2.6 * cm,
-                                                                     height=3.5 * cm, kind="proportional")]]
-            block = Table(identity, colWidths=[14.6 * cm, 2.8 * cm], hAlign="LEFT")
+            identity = [["", paragraph(document["title"], title), Image(str(photo), width=2.6 * cm,
+                                                                         height=3.5 * cm, kind="proportional")]]
+            block = Table(identity, colWidths=[1.8 * cm, 13 * cm, 2.6 * cm], hAlign="LEFT")
             block.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                                        ("RIGHTPADDING", (0, 0), (-1, -1), 4), ("TOPPADDING", (0, 0), (-1, -1), 0),
                                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
             story.append(block)
         else:
-            story.append(paragraph(document["title"], title))
+                story.append(paragraph(document["title"], title))
     if document["subtitle"]:
-        story.append(paragraph(document["subtitle"], subtitle))
+            if photo:
+                contact = Table([["", paragraph(document["subtitle"], subtitle), ""]],
+                                colWidths=[1.8 * cm, 13 * cm, 2.6 * cm], hAlign="LEFT")
+                contact.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                             ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                             ("TOPPADDING", (0, 0), (-1, -1), 0),
+                                             ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+                story.append(contact)
+            else:
+                story.extend(paragraph(line, subtitle) for line in document["subtitle"].splitlines())
     for section_data in document["sections"]:
         table_data = section_data["table"]
         table_only = table_data and not section_data["paragraphs"] and not section_data["bullets"]
@@ -504,9 +589,12 @@ def _write_pdf(document, stream, font_path, template, photo=None):
                 story.append(CondPageBreak(64))
                 story.append(section_heading(section_data["heading"]))
             else:
-                story.append(section_heading(section_data["heading"]))
+                story.append(section_heading(section_data["heading"]) if section_data["level"] == 1
+                             else paragraph(section_data["heading"], subheading))
+        if section_data["meta"]:
+            story.append(paragraph(section_data["meta"], metadata))
         story.extend(paragraph(value) for value in section_data["paragraphs"])
-        story.extend(Paragraph("• " + escape(value).replace("\n", "<br/>"), bullet) for value in section_data["bullets"])
+        story.extend(paragraph("• " + value, bullet) for value in section_data["bullets"])
         if table_data:
             rows = [[paragraph(value) for value in table_data["headers"]]]
             rows.extend([paragraph(value) for value in row] for row in table_data["rows"])
@@ -543,32 +631,35 @@ def _parse_resume_markdown(content):
                 _error("UNSUPPORTED_RESUME", "only Oriward generated source-record footer may follow '---'")
             break
         if value.startswith("## ") and value[3:].strip():
-            current = {"heading": value[3:], "paragraphs": [], "bullets": [], "table": None}
+            current = {"heading": value[3:], "paragraphs": [], "bullets": [], "table": None, "level": 1}
             result["sections"].append(current)
         elif value.startswith("### ") and value[4:].strip() and current is not None:
             # Keep each experience adjacent to its own bullets.  A flattened
             # parent section would make all experience names precede all
             # bullets in both output formats, changing claim ownership.
-            current = {"heading": value[4:], "paragraphs": [], "bullets": [], "table": None}
+            current = {"heading": value[4:], "paragraphs": [], "bullets": [], "table": None, "level": 2}
             result["sections"].append(current)
         elif value.startswith("- ") and value[2:].strip() and current is not None:
             current["bullets"].append(value[2:])
         elif value.startswith("*") and value.endswith("*") and len(value) > 2:
-            target = current["paragraphs"] if current else None
-            if target is None and not result["subtitle"]:
+            if current is not None and current.get("level") == 2 and not current.get("meta"):
+                current["meta"] = value[1:-1]
+            elif current is not None:
+                current["paragraphs"].append(value[1:-1])
+            elif not result["subtitle"]:
                 result["subtitle"] = value[1:-1]
-            elif target is not None:
-                target.append(value[1:-1])
             else:
-                _error("UNSUPPORTED_RESUME", "unexpected generated emphasis line")
+                result["subtitle"] += "\n" + value[1:-1]
         elif current is None and not result["subtitle"]:
             result["subtitle"] = value
+        elif current is None:
+            result["subtitle"] += "\n" + value
         elif current is not None and not value.startswith(("#", "-", "*")):
             current["paragraphs"].append(value)
         else:
             _error("UNSUPPORTED_RESUME", f"unsupported Markdown line: {value[:60]}")
-    if not result["sections"] or not footer:
-        _error("UNSUPPORTED_RESUME", "resume is missing generated sections or source-record footer")
+    if not result["sections"]:
+        _error("UNSUPPORTED_RESUME", "resume is missing generated sections")
     return _normalise_document(result), footer
 
 
@@ -590,14 +681,10 @@ def _load_resume(resume_id):
         resume = dict(row)
         from oriward.experience_library import resume_validity
         validity = resume_validity(db, resume)
-        if validity["needs_review"]:
-            _error("STALE_RESUME", "experience sources changed or were excluded; rebuild/review before export")
         path = services.resume_path(resume)
         if not path.is_file():
             _error("RESUME_NOT_FOUND", f"resume {rid} has no file at {path}")
         revision = db.execute("SELECT factual_status FROM resume_versions WHERE resume_id=?", (rid,)).fetchone()
-        if revision is not None and revision["factual_status"] != "approved":
-            _error("UNAPPROVED_REVISION", "resume revision requires direct factual confirmation before export")
     try:
         content = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -606,7 +693,10 @@ def _load_resume(resume_id):
         _error("UNSUPPORTED_RESUME", f"saved resume is not UTF-8 Markdown: {exc}")
     document, footer = _parse_resume_markdown(content)
     _validate_resume_content(document)
-    return document, {"resume_id": rid, "job_id": resume["job_id"], "omitted_internal_footer": footer}
+    return document, {"resume_id": rid, "job_id": resume["job_id"], "omitted_internal_footer": bool(footer),
+                      "source_validity": validity,
+                      "factual_status": revision["factual_status"] if revision else None,
+                      "markdown_sha256": _digest(path)}
 
 
 def probe():
@@ -621,7 +711,7 @@ def probe():
 
 
 def export_document(*, document=None, resume_id=None, output_dir, formats=("docx", "pdf"), font=None,
-                    template="clean", photo=None, renderer="auto", page_policy="a4-1-2"):
+                    template="modern-cn", photo=None, renderer="auto", page_policy="a4-1-3"):
     """Export one normalised document into a brand-new directory and return its manifest."""
     if (document is None) == (resume_id is None):
         _error("INVALID_ARGUMENTS", "provide exactly one of document or resume_id")
@@ -630,11 +720,11 @@ def export_document(*, document=None, resume_id=None, output_dir, formats=("docx
     formats = tuple(formats)
     if not formats or set(formats) - {"docx", "pdf"} or len(set(formats)) != len(formats):
         _error("INVALID_ARGUMENTS", "formats must be a unique subset of docx,pdf")
-    if template not in TEMPLATES or renderer not in {"auto", "reportlab", "libreoffice", "word"} or page_policy not in {"a4-1-2", "a4-1"}:
+    if template not in TEMPLATES or renderer not in {"auto", "reportlab", "libreoffice", "word"} or page_policy not in {"a4-1-2", "a4-1", "a4-1-3"}:
         _error("INVALID_ARGUMENTS", "invalid template, renderer or page policy")
     photo_path = Path(photo).expanduser() if photo else None
-    if photo_path and (template != "modern-cn" or not photo_path.is_file()):
-        _error("INVALID_PHOTO", "photo requires modern-cn and an existing image file")
+    if photo_path and (template not in {"modern-cn", "reference"} or not photo_path.is_file()):
+        _error("INVALID_PHOTO", "photo requires a photo-capable template and an existing image file")
     candidates = dict(_renderer_candidates())
     native_renderer = None
     if renderer in {"word", "libreoffice"}:
@@ -715,7 +805,7 @@ def export_document(*, document=None, resume_id=None, output_dir, formats=("docx
                 page_count = len(PdfReader(str(output / "document.pdf")).pages)
             except ImportError as exc:
                 _error("MISSING_DEPENDENCY", "PDF page policy check needs pypdf: " + str(exc))
-            limit = 1 if page_policy == "a4-1" else 2
+            limit = {"a4-1": 1, "a4-1-2": 2, "a4-1-3": 3}[page_policy]
             if page_count > limit:
                 _error("PAGE_POLICY", f"export has {page_count} pages; {page_policy} allows at most {limit}")
         manifest = {"status": "GENERATED_PENDING_VISUAL_REVIEW",
@@ -753,10 +843,10 @@ def main(argv=None):
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--formats", default="docx,pdf")
     parser.add_argument("--font")
-    parser.add_argument("--template", choices=sorted(TEMPLATES), default="clean")
+    parser.add_argument("--template", choices=sorted(TEMPLATES), default="modern-cn")
     parser.add_argument("--photo", type=Path)
     parser.add_argument("--renderer", choices=("auto", "reportlab", "libreoffice", "word"), default="auto")
-    parser.add_argument("--page-policy", choices=("a4-1-2", "a4-1"), default="a4-1-2")
+    parser.add_argument("--page-policy", choices=("a4-1-2", "a4-1", "a4-1-3"), default="a4-1-3")
     parser.add_argument("--probe", action="store_true")
     args = parser.parse_args(argv)
     try:

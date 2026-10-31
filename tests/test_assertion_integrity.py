@@ -45,7 +45,7 @@ class AssertionIntegrityTest(unittest.TestCase):
     def test_source_defaults_and_explicit_experience_inference_remain_compatible(self):
         expected = {
             "user_message": "user_stated", "document": "document_verified",
-            "experience": "user_confirmed", "model_inference": "inferred",
+            "experience": "inferred", "model_inference": "inferred",
         }
         for source, status in expected.items():
             with self.subTest(source=source):
@@ -54,6 +54,14 @@ class AssertionIntegrityTest(unittest.TestCase):
         inferred = self.propose(source_type="experience", predicate="experience_inference",
                                 epistemic_status="inferred")
         self.assertEqual(inferred["epistemic_status"], "inferred")
+
+    def test_experience_source_does_not_invent_confirmation_on_create_or_revise(self):
+        first = self.propose(source_type="experience", predicate="experience_source")
+        self.assertEqual(first["epistemic_status"], "inferred")
+        self.assertFalse(assertions.get(first["id"])["last_confirmed_at"])
+        revised = assertions.revise(first["id"], value={"text": "能力线索"}, source_type="experience")
+        self.assertEqual(revised["epistemic_status"], "inferred")
+        self.assertFalse(assertions.get(revised["id"])["last_confirmed_at"])
 
     def test_revision_inherits_provenance_and_history_keeps_each_version(self):
         first = self.propose(

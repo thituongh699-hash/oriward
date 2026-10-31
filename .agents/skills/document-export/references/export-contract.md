@@ -1,6 +1,6 @@
 # Document conversion input
 
-The helper accepts one registered `--resume-id` or one reviewed local `--input` JSON. It is a focused career-document converter, not arbitrary Markdown/HTML/DOC/DOCX conversion.
+The helper accepts one registered `--resume-id` or one structured local `--input` JSON. It is a focused career-document converter, not arbitrary Markdown/HTML/DOC/DOCX conversion.
 
 Structured input uses plain strings:
 
@@ -24,7 +24,7 @@ Structured input uses plain strings:
 
 HTML/XML-like strings are literal content, never instructions or formatting injection. Retain uncertainty, source dates and actual/mock/hypothesis labels where meaningful. The helper validates structure/font coverage; the Agent selects supported facts.
 
-Resumes require `--resume-id`. Resume-like structured headings (e.g. 个人简介、相关经历、教育经历、实习经历、工作经历、项目经历) produce `RESUME_REQUIRES_ID`. Registered resume export reads the existing generated Markdown, removes the internal provenance footer and rejects unsupported structure instead of dropping content. Pending factual additions require approval first; changed/excluded experience sources require a rebuilt current resume. Pure sourced wording inherits factual approval, with final draft review.
+Resumes require `--resume-id`. Resume-like structured headings (e.g. 个人简介、相关经历、教育经历、实习经历、工作经历、项目经历) produce `RESUME_REQUIRES_ID`. Registered resume export reads the existing generated Markdown, removes the internal provenance footer and rejects unsupported structure instead of dropping content. Drafts and pending revisions can be exported for local reading without factual approval or simulated hiring review. Source validity, stored factual status and the Markdown digest remain manifest diagnostics; historical source changes do not relabel the exported snapshot as current. A new resume version should reflect corrections. Legacy provenance footers are optional and omitted from candidate-facing outputs.
 
 `--output-dir` must be new and its parent exist. Default `--formats docx,pdf`; choose one only if requested. `--font <local-font>` selects embeddable TrueType for PDF. Files plus `manifest.json` record export time, source IDs where applicable, formats, font and sizes. By default, Word or LibreOffice renders the DOCX to PDF when available; otherwise ReportLab renders it and the manifest identifies that renderer. Select `auto`, `word`, `libreoffice` or `reportlab` with `--renderer`.
 
@@ -32,4 +32,4 @@ DOCX records but does not embed its font. A PDF rendered from DOCX follows that 
 
 ## Layout references
 
-The reusable layouts are original Oriward designs. Research reviewed [elegant-resume](https://github.com/OneYuan1/elegant-resume) (MIT) for its editable Word workflow and reference assets, and the Ministry of Human Resources and Social Security's [A4 one-page resume example](https://chinajob.mohrss.gov.cn/zcms/file/download?ID=586084) and [A4 two-page project-management example](https://chinajob.mohrss.gov.cn/zcms/file/download?ID=586083) for page scale and information density. Only layout observations informed this implementation; no sample claims or source document layout were copied.
+`modern-cn` is the generic default; honor an established personal preference through the template option. `reference` follows the user's supplied `个人参考 PDF` typography and identity/photo placement; section order still follows the registered draft. The older `modern-cn` and `clean` layouts are original Oriward designs; fictional samples under `docs/assets/resume-templates/` cover all three layouts. Research for those designs reviewed [elegant-resume](https://github.com/OneYuan1/elegant-resume) (MIT) and the Ministry of Human Resources and Social Security's [A4 one-page resume example](https://chinajob.mohrss.gov.cn/zcms/file/download?ID=586084) and [A4 two-page project-management example](https://chinajob.mohrss.gov.cn/zcms/file/download?ID=586083).
