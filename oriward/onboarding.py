@@ -34,11 +34,14 @@ def _load(conn):
         state = deserialize(row["data"])
         state.setdefault("history_intake", {"answer": "unasked", "scope": []})
         state.setdefault("scheduled_search", "unasked")
+        state.setdefault("discovery_clues", [])
+        state.setdefault("next_clue_id", 1)
+        state.setdefault("history_reads", {})
         return state
     return {"version": 1, "intent": "experience_index", "companies": [], "roles": [],
             "constraints": {}, "prompts": {}, "channels": {}, "preference_sources": {}, "current_topic": None,
             "paused_branches": [], "next_branch_id": 1, "history_intake": {"answer": "unasked", "scope": []},
-            "scheduled_search": "unasked"}
+            "scheduled_search": "unasked", "discovery_clues": [], "next_clue_id": 1, "history_reads": {}}
 
 
 def _save(conn, state):
@@ -163,6 +166,12 @@ def missing_prompts(*, before_search=False):
     choice can therefore be raised again immediately before the first search.
     """
     value = status()
+    if not before_search and value["intent"] == "experience_index":
+        next_step = discovery_next(value)
+        return {"prompts": [next_step["prompt"]] if next_step.get("prompt") else [],
+                "known": {key: value[key] for key in ("intent", "companies", "roles", "constraints", "channels")},
+                "default_next_step": "build_experience_library", "blocks_search": False,
+                "discovery": next_step}
     questions = {"intent": "先简略盘点经历、探索方向，还是处理已有职位/公司/JD？",
                  "companies": "有目标公司吗？暂时没有也可以先探索。",
                  "roles": "有目标职位吗？暂时没有可从经历索引提出少量可修订方向。",
@@ -178,7 +187,7 @@ def missing_prompts(*, before_search=False):
     if intake.get("answer", "unasked") == "unasked":
         prompts.append({"field": "history_intake", "question": "是否允许读取你指定的 Agent 对话/导出文件？可授权指定范围、稍后或拒绝；未授权前不会读取。",
                         "choices": ["allow", "later", "decline"]})
-    if _scheduled_search_ready(value) and value.get("scheduled_search", "unasked") == "unasked":
+    if (before_search or value["intent"] == "search") and _scheduled_search_ready(value) and value.get("scheduled_search", "unasked") == "unasked":
         prompts.append({"field": "scheduled_search", "question": "经历索引和城市约束已可用。是否安排周期性岗位搜索？可选现在、稍后或不需要。",
                         "choices": ["now", "later", "no"]})
     return {"prompts": prompts, "known": {key: value[key] for key in ("intent", "companies", "roles", "constraints", "channels")},
@@ -243,6 +252,127 @@ def continuation():
     value = status()
     return {key: value[key] for key in ("intent", "companies", "roles", "constraints", "channels",
                                        "current_topic", "paused_branches", "history_intake", "scheduled_search")}
+
+
+CLUE_STATES = {"open", "answered", "later", "declined"}
+
+
+def save_clue(*, title, question, reason, source, experience_id=None, priority=2):
+    """Agent-selected recall lead, never an assertion of achievement."""
+    title = _text(title, "title", 200, empty=False)
+    question = _text(question, "question", 500, empty=False)
+    reason = _text(reason, "reason", 500, empty=False)
+    source = _text(source, "source", 1000, empty=False)
+    if type(priority) is not int or priority not in (1, 2, 3):
+        raise ValidationError("priority must be 1, 2 or 3")
+    if experience_id is not None:
+        from .experience_library import get
+        if type(experience_id) is not int:
+            raise ValidationError("experience_id must be an integer")
+        get(experience_id)
+    with connect() as conn:
+        state = _load(conn)
+        for clue in state["discovery_clues"]:
+            if (clue["title"], clue["question"], clue.get("experience_id")) == (title, question, experience_id):
+                return clue  # Never reopen a deferred or answered question on re-extraction.
+        clue = {"id": state["next_clue_id"], "title": title, "question": question,
+                "reason": reason, "source": source, "experience_id": experience_id,
+                "priority": priority, "status": "open", "created_at": now(), "updated_at": now()}
+        state["next_clue_id"] += 1
+        state["discovery_clues"].append(clue)
+        _save(conn, state)
+    return clue
+
+
+def set_clue_state(clue_id, status, *, note=""):
+    if status not in CLUE_STATES:
+        raise ValidationError("Unknown clue status")
+    note = _text(note, "note", 1000)
+    with connect() as conn:
+        state = _load(conn)
+        clue = next((row for row in state["discovery_clues"] if row["id"] == clue_id), None)
+        if clue is None:
+            raise ValidationError("Clue not found")
+        clue.update(status=status, note=note, updated_at=now())
+        _save(conn, state)
+    return clue
+
+
+def discovery_clues(*, offset=0, limit=10):
+    if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 50:
+        raise ValidationError("offset >= 0 and limit between 1 and 50 required")
+    clues = status()["discovery_clues"]
+    items = clues[offset:offset + limit]
+    next_offset = offset + len(items)
+    return {"items": items, "total": len(clues), "next_offset": next_offset,
+            "complete": next_offset >= len(clues)}
+
+
+def record_history_read(receipt):
+    """Keep only extraction progress, not chat bodies or semantic completion."""
+    if receipt["source_filter"] not in {"user", "all"}:
+        return
+    with connect() as conn:
+        state = _load(conn)
+        path = receipt["source_file"]
+        previous = state["history_reads"].get(path, {})
+        signature = ("source_sha256", "source_filter", "query", "max_chars")
+        same = all(previous.get(key) == receipt[key] for key in signature)
+        covered = previous.get("next_offset", 0) if same else 0
+        # A changed snapshot or extraction layout starts a fresh prefix. A
+        # later page must not retain an older snapshot's completed receipt.
+        next_offset = covered if receipt["offset"] > covered else max(covered, receipt["next_offset"])
+        state["history_reads"][path] = {key: receipt[key] for key in signature}
+        state["history_reads"][path].update(next_offset=next_offset,
+                                             total_chunks=receipt["total_chunks"], read_at=now())
+        _save(conn, state)
+
+
+def discovery_next(state=None):
+    """Suggest one question, not a questionnaire or a library-completion gate."""
+    from .experience_library import list_current
+    value = state if state is not None else status()
+    current_ids = {row["id"] for row in list_current()}
+    eligible = [row for row in value["discovery_clues"] if row["status"] == "open"
+                and (row.get("experience_id") is None or row["experience_id"] in current_ids)]
+    eligible.sort(key=lambda row: (row["priority"], row["id"]))
+    result = {"open_count": len(eligible),
+              "deferred_count": sum(row["status"] == "later" for row in value["discovery_clues"]),
+              "library_complete": False, "clue_id": None, "prompt": None,
+              "history_action": None}
+    intake = value.get("history_intake", {})
+    if intake.get("answer", "unasked") == "allow":
+        pending = []
+        for path in intake["scope"]:
+            read = value["history_reads"].get(path)
+            if read is None or read["next_offset"] < read["total_chunks"]:
+                pending.append({"file": path, "offset": read["next_offset"] if read else 0,
+                                "source": read["source_filter"] if read else "user",
+                                "query": read["query"] if read else "",
+                                "max_chars": read["max_chars"] if read else 12000})
+        if pending:
+            result["history_action"] = {"action": "extract_authorized_history", "files": pending,
+                                        "rule": "Read the next page, save clear self-reports and recall clues; extraction is not semantic verification."}
+    if value["intent"] != "experience_index":
+        result["next_action"] = "follow_current_task"
+        return result
+    if eligible:
+        clue = eligible[0]
+        result.update(clue_id=clue["id"], next_action="ask_one_question",
+                      prompt={"field": "experience_clue", "question": clue["question"],
+                              "reason": clue["reason"], "experience_id": clue.get("experience_id")})
+    elif intake.get("answer", "unasked") == "unasked":
+        result.update(next_action="offer_history_recovery", prompt={"field": "history_intake",
+                      "question": "为了先帮你搭起经历库，是否允许从你指定的历史聊天或导出文件开始整理？也可以稍后或直接聊。",
+                      "choices": ["allow", "later", "decline"]})
+    elif result["history_action"]:
+        result["next_action"] = "review_authorized_history_and_existing_library"
+    elif not current_ids and not value["discovery_clues"]:
+        result.update(next_action="start_from_story", prompt={"field": "experience_story",
+                      "question": "先从你愿意聊的一段经历开始：有没有一件主要由你负责或推动的事？工作、学习、帮家里做事都算。"})
+    else:
+        result["next_action"] = "summarize_known_experiences_offer_next_topic_or_pause"
+    return result
 
 
 def set_history_intake(answer, *, scope=None):

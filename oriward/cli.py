@@ -15,6 +15,7 @@ from .core import actions as core_actions, assertions as core_belief, context as
 from .core import goals as core_goals, pipeline as core_pipeline, reflection as core_reflection
 from .core import signals as core_signals, twin as core_twin
 from .core import decisions as core_decisions
+from .core import workflow_map
 
 _OUTPUT_PATH = None
 
@@ -281,6 +282,7 @@ def run(argv=None):
 
     ctx = sub.add_parser("context", help="Bounded user context assembled from Career Twin Core")
     ca = ctx.add_subparsers(dest="action", required=True)
+    ca.add_parser("map", help="Five workflows, three state layers and their handoffs")
     x = ca.add_parser("brief", help="Five-question session brief with IDs for drill-down")
     x.add_argument("--max-chars", type=int, default=3200)
     x.add_argument("--focus")
@@ -397,7 +399,9 @@ def run(argv=None):
                                    goal_id=args.goal_id))
         return
     if args.domain == "context":
-        if args.action == "brief":
+        if args.action == "map":
+            p(workflow_map.map_workflows())
+        elif args.action == "brief":
             p(core_context.brief(max_chars=args.max_chars, focus=args.focus))
         elif args.action == "section":
             p(core_context.section(args.name, focus=args.focus, max_chars=args.max_chars))

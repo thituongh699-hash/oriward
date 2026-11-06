@@ -14,17 +14,38 @@ def register(subparsers):
     x.add_argument("--scope", action="append", default=[])
     x = actions.add_parser("search-schedule")
     x.add_argument("--answer", choices=("now", "later", "no"), required=True)
+    actions.add_parser("next")
+    x = actions.add_parser("clue")
+    x.add_argument("--file", required=True)
+    x = actions.add_parser("clues")
+    x.add_argument("--offset", type=int, default=0)
+    x.add_argument("--limit", type=int, default=10)
+    x = actions.add_parser("clue-state")
+    x.add_argument("--id", type=int, required=True)
+    x.add_argument("--state", choices=sorted(onboarding.CLUE_STATES), required=True)
+    x.add_argument("--note", default="")
     history_cmd = subparsers.add_parser("history", help="Extract relevant chunks from an authorized export")
     history_actions = history_cmd.add_subparsers(dest="history_action", required=True)
     x = history_actions.add_parser("extract")
     x.add_argument("--file", required=True)
     x.add_argument("--query", default="")
     x.add_argument("--max-chars", type=int, default=12000)
+    x.add_argument("--offset", type=int, default=0)
+    x.add_argument("--source", choices=("all", "user", "assistant", "tool"), default="all")
     return intake, history_cmd
 
 
 def dispatch(args):
     if args.domain == "intake":
+        if args.intake_action == "next":
+            return onboarding.discovery_next()
+        if args.intake_action == "clue":
+            from .services import json_file
+            return onboarding.save_clue(**json_file(args.file))
+        if args.intake_action == "clues":
+            return onboarding.discovery_clues(offset=args.offset, limit=args.limit)
+        if args.intake_action == "clue-state":
+            return onboarding.set_clue_state(args.id, args.state, note=args.note)
         if args.intake_action == "history-consent":
             return onboarding.set_history_intake(args.answer, scope=args.scope)
         return onboarding.set_scheduled_search(args.answer)
@@ -36,5 +57,8 @@ def dispatch(args):
             raise PermissionError("This exact file was not included in an explicit history-intake consent")
         if isinstance(args.max_chars, bool) or args.max_chars < 1:
             raise ValueError("max_chars must be a positive integer")
-        return history.extract_file(path, query=args.query, max_chars=args.max_chars)
+        receipt = history.extract_file(path, query=args.query, max_chars=args.max_chars,
+                                       offset=getattr(args, "offset", 0), source=getattr(args, "source", "all"))
+        onboarding.record_history_read(receipt)
+        return receipt
     raise ValueError("Unsupported intake command")

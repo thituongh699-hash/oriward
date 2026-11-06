@@ -1,19 +1,33 @@
 # 运行工作流
 
+## 五模块协作
+
+项目按**经历挖掘、职业规划、简历制作、岗位搜索与投递、个人提升**五个业务模块组织。`python -m oriward context map` 输出统一模块契约；`context brief` 读取当前状态，`context section --name who_am_i|who_could_i_become|where_i_am_now|what_next` 按现有问题章节展开。三层状态分别回答长期的经历/证据/约束、中期的方向/目标/差距/时间预算、短期的岗位/简历/申请/任务/阻塞。它们是同一 Core 的视图，不需复制个人资料或新建并行数据库。
+
+| 交接 | 传递的稳定引用 | 更新规则 |
+| --- | --- | --- |
+| 经历挖掘 → 职业规划/简历制作/个人提升 | experience ID、有效版本、相关 assertion ID | 经历更正后，相关方向与简历重新核对；线索本身不是事实 |
+| 职业规划 → 岗位搜索/简历制作/个人提升 | direction/goal ID、目标状态、约束和差距 | 方向假设和用户选定目标分开；目标变化重评旧建议 |
+| 岗位搜索 → 简历制作/个人提升 | job ID、完整 JD、来源及日期、岗位分析 | 搜索卡片不代替完整 JD；岗位变化后重新检查定制材料 |
+| 简历制作 → 投递准备 | resume ID、岗位 ID、来源版本 | 绑定实际版本；准备不等于已经投递 |
+| 投递/面试/实践 → 前面各模块 | 具体岗位与申请反馈、学习成果和新经历 | 先记录情境结果，再按证据修订方向、经历或简历；长期规则只在用户明确认可后更新 |
+
+每次进入一个模块，先取 `context brief` 和当前话题，再按上表读取对应索引与详情；完成时用该模块 CLI 保存产物，记录下一个动作及阻碍。当前任务可直接进入任一模块，前置模块信息不足时只追问会影响当前产出的关键缺口。各模块后续扩充以本节交接契约和对应 Skill 为边界，不另造平行个人状态。
+
 产品与模块统一为 Oriward · 原向 / `oriward`，分发包为 `oriward-local`。旧默认数据库存在且新默认库不存在时继续使用原文件；旧前缀环境变量仅作兼容读取，新 `ORIWARD_*` 优先。Python 模块和命令使用新名称，个人记录与历史输出不因品牌更新而重写。
 
 命令从项目根运行；`python` 换成已检查的 Python 3.10+ 解释器，示例 ID 换成实际返回值。输入使用标准 JSON，不含注释。字段与示例见 [DATA_MODEL](DATA_MODEL.md)，任务操作见对应 `.agents/skills/<name>/SKILL.md`；只有涉及适配建议、方案选择或证据变化时加载 [DECISIONS](DECISIONS.md)。普通日程 action 可以没有 decision，其 `unassessed` 状态不能证明适配。
 
 ## 启动与接续
 
-v0.3 首次引导询问是否允许从指定历史对话建立初步经历库，可选允许、稍后或拒绝。允许仅限明确指定的导出文件；提取保留用户、模型和工具说话方，不把模型建议当成用户经历：
+首次默认搭建经历库，主动建议从用户指定的历史对话建立初步经历库，可选允许、稍后或拒绝。允许仅限明确指定的导出文件；提取保留用户、模型和工具说话方，不把模型建议当成用户经历：
 
 ```text
 python -m oriward intake history-consent --answer allow --scope data/private/chat-export.jsonl
-python -m oriward history extract --file data/private/chat-export.jsonl --query 项目 --max-chars 12000
+python -m oriward history extract --file data/private/chat-export.jsonl --source user --offset 0 --max-chars 12000
 ```
 
-通过自然对话恢复工作、经营、教育、项目和非标准就业经历，先整理简略时间线、关联原始细节。清晰自述足以保存和写稿，不要求逐条经历批准、证明附件或精确 KPI；只针对会改变表达的重要歧义轻量追问。提取不会自动写入经历；使用既有 experience add/revise 保存。经历和城市安排可用后，提示是否需要每日定时搜索；`intake search-schedule --answer now|later|no` 记录意愿，宿主建立任务前确认时间、时区和范围。每日最多制作三份新的高相关岗位简历，保持未投递；无变化时安静。此命令本身不创建任务。
+通过自然对话恢复工作、经营、教育、项目和非标准就业经历，先整理简略时间线、关联原始细节。清晰自述足以保存和写稿，不要求逐条经历批准、证明附件或精确 KPI；每轮围绕一条有价值的线索追问，逐步恢复具体事件、本人动作、判断、困难和结果；先保存已知事实，再继续提问。提取不会自动写入经历；使用既有 experience add/revise 保存。仅在进入搜索意图（intent:search 或 onboarding missing --before-search）且经历和地点可用后，提示是否需要定时搜索；`intake search-schedule --answer now|later|no` 记录意愿，宿主建立任务前确认时间、时区和范围。每日最多制作三份新的高相关岗位简历，保持未投递；无变化时安静。此命令本身不创建任务。
 
 默认上下文先保留恢复包：当前话题和下一步、身份/教育/城市安排、相关目标、可执行动作或阻塞、经历索引入口、岗位/简历 ID、暂停分支数量和恢复入口、重要更正及冲突。`context brief --focus <主题>` 优先当前主题；`context section --name <章节>` 展开详情。默认 3200 字符按实际 JSON 计数；过小预算无法容纳最小信息时明确报告 `over_budget`。
 
@@ -50,7 +64,21 @@ python -m oriward pipeline show --job-id 1
 
 ## 经历盘点
 
-首次以简略经历盘点为主：做过什么、本人主要动作、已知结果和探索性标签。复用已有材料，不要求完整深访、证明文件或量化 KPI 才能开始。简短询问目标职位/公司、安排和渠道接入意愿；已有紧急 JD 时直接处理。只问当前最有帮助的问题，不为补齐字段逐项盘问；暂缓/拒绝后不反复追问：
+主动从用户讲述和授权历史中发现值得展开的线索，每轮问一个关键问题。历史提取沿 `next_offset` 分页到 `complete=true`，保持 source/query/max-chars 相同；回执保存源哈希、记录编号、时间和连续读取进度。文件变更从 0 重新读取并按事件/来源去重。读取完成不代表语义分析或经历入库完成；恢复中断时检查最后一页与保存回执。宿主聊天工具须有具体聊天范围的授权，CLI 文件授权不意味着能访问宿主全部聊天。没有工具/导出文件时说明限制，从当前故事开始。
+
+待展开内容使用独立线索记录，输入见 [DATA_MODEL](DATA_MODEL.md)：
+
+```text
+python -m oriward intake clue --file data/private/recall-clue.json
+python -m oriward intake next
+python -m oriward intake clue-state --id 1 --state answered --note "已保存 experience 1 version 2"
+python -m oriward intake clue-state --id 2 --state later --note "用户想下次再聊"
+python -m oriward intake clues --offset 0 --limit 10
+```
+
+示例 ID/回执替换为实际值，先完成经历保存才能标记回答已落库。`intake next` 最多推荐一个问题；暂缓/拒绝不自动重开，关联已排除经历不再推荐。当前用户话题优先于排序，已有回答应先消除重复线索。没有待问线索不表示整个经历库已经完整，也不阻止用户先写稿或搜索。
+
+首次以简略经历盘点为主：做过什么、本人主要动作、已知结果和探索性标签。复用已有材料，不要求完整深访、证明文件或量化 KPI 才能开始。目标职位/公司、安排和渠道接入问题延后到搜索相关任务；已有紧急 JD 时直接处理。只问当前最有帮助的问题，不为补齐字段逐项盘问；暂缓/拒绝后不反复追问：
 
 ```text
 python -m oriward onboarding preferences --file data/private/preferences.json

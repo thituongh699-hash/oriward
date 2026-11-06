@@ -24,8 +24,8 @@ class OnboardingTests(unittest.TestCase):
         self.assertEqual(state["channels"], {})
         prompts = o.missing_prompts()
         self.assertFalse(prompts["blocks_search"])
-        self.assertEqual(prompts["default_next_step"], "lightweight_experience_index")
-        self.assertEqual({p["field"] for p in prompts["prompts"]}, {"intent", "companies", "roles", "constraints", "channels", "history_intake"})
+        self.assertEqual(prompts["default_next_step"], "build_experience_library")
+        self.assertEqual({p["field"] for p in prompts["prompts"]}, {"history_intake"})
         with connect() as conn:
             saved = deserialize(conn.execute("SELECT data FROM career_settings WHERE key='onboarding'").fetchone()[0])
         self.assertEqual(saved, state)
@@ -39,7 +39,7 @@ class OnboardingTests(unittest.TestCase):
         o.set_history_intake("later")
         self.assertEqual(o.missing_prompts(before_search=True)["prompts"], [])
         o.set_channel_preference("liepin", "declined")
-        self.assertEqual(o.missing_prompts()["prompts"], [])
+        self.assertEqual(o.missing_prompts()["prompts"][0]["field"], "experience_story")
         o.set_channel_preference("liepin", "unasked")
         self.assertEqual([p["field"] for p in o.missing_prompts(before_search=True)["prompts"]], ["channels"])
 
@@ -111,7 +111,8 @@ class OnboardingTests(unittest.TestCase):
         services.save_profile({"display_name": "虚构用户", "location": "测试市"})
         services.add_object("experiences", {"event": "虚构课程项目", "actions": ["整理材料"], "outcomes": [], "evidence": []}, required=())
         prompt_fields = {row["field"] for row in o.missing_prompts()["prompts"]}
-        self.assertIn("scheduled_search", prompt_fields)
+        self.assertNotIn("scheduled_search", prompt_fields)
+        self.assertIn("scheduled_search", {row["field"] for row in o.missing_prompts(before_search=True)["prompts"]})
         result = o.set_scheduled_search("now")
         self.assertTrue(result["host_task"]["requested"])
         self.assertEqual(result["host_task"]["max_new_tailored_resumes_per_day"], 3)

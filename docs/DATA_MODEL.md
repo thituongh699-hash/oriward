@@ -10,6 +10,21 @@ SQLite 由 `python -m oriward init` 初始化；默认数据库为 `data/private
 
 ## 核心实体
 
+经历挖掘使用 `onboarding` 设置的兼容字段，不变更 schema：`discovery_clues` 保存线索 ID、标题、一个问题、提问原因、来源定位、可选 experience_id、priority（1–3）与 status（open/answered/later/declined）；`next_clue_id` 单调分配。线索不是个人事实，回答仍通过经历 CLI 保存。相同标题/问题/经历 ID 的重复写入返回原线索，保留暂缓/拒绝状态；语义去重由 Agent 完成。`history_reads` 保存每个授权文件的哈希、筛选条件、连续读取游标和时间，不保存聊天正文；跳页不能证明前缀已读。读取覆盖和语义入库独立，源文件变化需重新提取。`intake next` 的 `library_complete:false` 表示没有自动完整性认证，而非用户必须补齐字段。
+
+`intake clue --file` 的虚构输入（experience_id 替换成实际已保存 ID；尚未建立经历时可省略）：
+
+```json
+{
+  "title": "家里店铺的日常协助",
+  "question": "店里哪一件事通常主要由你负责？",
+  "reason": "从笼统协助恢复本人实际责任",
+  "source": "用户当前消息：曾帮家里看店",
+  "experience_id": 1,
+  "priority": 2
+}
+```
+
 | 实体 | 关键关系 | 不变量 |
 | --- | --- | --- |
 | `experiences` | 当前经历版本、来源、标签 | 清晰自述即可直接用于写稿，无逐条批准门槛；排除、替代或关联事实失效后不得继续作当前证据 |

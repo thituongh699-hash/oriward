@@ -493,6 +493,11 @@ def brief(max_chars: int = DEFAULT_MAX_CHARS, focus: str | None = None, *, _sect
         "conflicts": [{"assertion_id": item.get("assertion_id"), "status": item.get("status")}
                       for item in uncertainties[:1]],
     }
+    if session["intent"] == "experience_index":
+        next_discovery = onboarding.discovery_next()
+        recovery["experience_discovery"] = {
+            "open_count": next_discovery["open_count"], "deferred_count": next_discovery["deferred_count"],
+            "clue_id": next_discovery["clue_id"], "restore": "python -m oriward intake next"}
     data = {
         "generated_at": now(),
         "recovery": recovery,

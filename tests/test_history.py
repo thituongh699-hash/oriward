@@ -44,6 +44,34 @@ class HistoryTests(unittest.TestCase):
         self.assertLessEqual(result["chars"], 300)
         self.assertTrue(result["truncated"])
 
+    def test_filtered_paging_preserves_every_character_and_wrapper_time(self):
+        import json
+        from oriward.history import extract_file
+        bodies = ["前段。\n" * 15, "后段\n" * 15]
+        rows = [{"type": "event_msg", "timestamp": "outer-time", "payload": {
+            "type": "user_message", "message": body}} for body in bodies]
+        rows.insert(1, {"role": "assistant", "content": "不要当作用户的经历"})
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "history.json"
+            path.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+            offset, chunks = 0, []
+            while True:
+                result = extract_file(path, max_chars=23, source="user", offset=offset)
+                chunks.extend(result["records"])
+                if result["complete"]:
+                    break
+                self.assertGreater(result["next_offset"], offset)
+                offset = result["next_offset"]
+        self.assertEqual("".join(row["body"] for row in chunks), "".join(body.strip() for body in bodies))
+        self.assertTrue(all(row["source"] == "user" and row["time"] == "outer-time" for row in chunks))
+        self.assertEqual({row["record_id"] for row in chunks}, {1, 3})
+
+    def test_invalid_pagination_is_rejected(self):
+        from oriward.history import extract_file
+        for offset in (-1, True):
+            with self.assertRaises(ValueError):
+                extract_file("unused", offset=offset)
+
 
 if __name__ == "__main__":
     unittest.main()

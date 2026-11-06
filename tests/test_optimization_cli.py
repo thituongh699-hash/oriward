@@ -37,8 +37,8 @@ class OptimizationCliTests(unittest.TestCase):
     def test_first_use_continuation_and_selective_output_are_real_cli_contracts(self):
         self.assertEqual(self.run_cli("init")[0]["schema_version"], 6)
         initial = self.run_cli("onboarding", "missing")[0]
-        self.assertEqual(initial["default_next_step"], "lightweight_experience_index")
-        self.assertIn("companies", [q["field"] for q in initial["prompts"]])
+        self.assertEqual(initial["default_next_step"], "build_experience_library")
+        self.assertEqual([q["field"] for q in initial["prompts"]], ["history_intake"])
         self.run_cli("onboarding", "preferences", "--file", self.file({
             "companies": [], "roles": [], "constraints": {}, "intent": "experience_index"}))
         self.run_cli("onboarding", "channel-intent", "--provider", "liepin", "--preference", "later")
@@ -71,6 +71,83 @@ class OptimizationCliTests(unittest.TestCase):
         self.assertEqual(self.run_cli("experience", "show", "--id", "1", "--sections", "actions")[0]["version"], 2)
         self.run_cli("experience", "exclude", "--id", "1", "--reason", "暂不使用")
         self.assertEqual(self.run_cli("experience", "index", "--ids", "1")[0]["items"], [])
+
+    def test_discovery_history_save_followup_and_resume(self):
+        self.run_cli("init")
+        source = self.file([
+            {"role": "user", "timestamp": "2026-01-01", "content": "我帮家里看店"},
+            {"role": "assistant", "content": "假设你管理过十个人，这不能当成事实"},
+            {"role": "user", "content": "我通常负责补货"}])
+        self.run_cli("intake", "history-consent", "--answer", "allow", "--scope", source)
+        first = self.run_cli("intake", "next")[0]
+        self.assertEqual(first["history_action"]["files"][0]["offset"], 0)
+        receipt = self.run_cli("history", "extract", "--file", source, "--source", "user", "--max-chars", "8")[0]
+        next_step = self.run_cli("intake", "next")[0]
+        self.assertEqual(next_step["history_action"]["files"][0]["offset"], receipt["next_offset"])
+        while not receipt["complete"]:
+            receipt = self.run_cli("history", "extract", "--file", source, "--source", "user",
+                                   "--max-chars", "8", "--offset", receipt["next_offset"])[0]
+        self.assertIsNone(self.run_cli("intake", "next")[0]["history_action"])
+        self.assertEqual(self.run_cli("experience", "index")[0]["items"], [])
+        # The Agent separately saves only the explicit user report.
+        self.run_cli("experience", "add", "--file", self.file({"event": "虚构店铺协助", "actions": ["负责补货"]}))
+        eid = self.run_cli("experience", "index")[0]["items"][0]["id"]
+        data = {"title": "补货", "question": "通常怎么判断该补哪些货？", "reason": "恢复具体判断过程",
+                "source": source + " user record 3", "experience_id": eid}
+        clue = self.run_cli("intake", "clue", "--file", self.file(data))[0]
+        self.assertEqual(self.run_cli("onboarding", "missing")[0]["prompts"][0]["question"], data["question"])
+        # A fresh process must recover the same stored next question.
+        import subprocess, sys
+        recovered = subprocess.run([sys.executable, "-m", "oriward", "intake", "next"],
+                                   capture_output=True, text=True, encoding="utf-8", check=True,
+                                   env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        self.assertEqual(json.loads(recovered.stdout)["clue_id"], clue["id"])
+        self.run_cli("experience", "revise", "--id", eid, "--file", self.file({"actions": ["负责补货", "每天核对库存"]}),
+                     "--reason", "用户补充", "--expected-version", 1)
+        self.run_cli("intake", "clue-state", "--id", clue["id"], "--state", "answered", "--note", "已保存经历 version 2")
+        repeated = self.run_cli("intake", "clue", "--file", self.file(data))[0]
+        self.assertEqual(repeated["status"], "answered")
+        self.assertIsNone(self.run_cli("intake", "next")[0]["prompt"])
+        self.assertFalse(self.run_cli("intake", "next")[0]["library_complete"])
+
+    def test_discovery_deferred_excluded_and_urgent_tasks(self):
+        self.run_cli("init")
+        self.run_cli("intake", "history-consent", "--answer", "decline")
+        self.run_cli("experience", "add", "--file", self.file({"event": "虚构活动"}))
+        eid = self.run_cli("experience", "index")[0]["items"][0]["id"]
+        ids = []
+        for priority in (3, 1, 2):
+            row = self.run_cli("intake", "clue", "--file", self.file({"title": f"线索{priority}",
+                "question": f"具体问题{priority}？", "reason": "恢复事件", "source": "用户当前发言",
+                "experience_id": eid, "priority": priority}))[0]
+            ids.append(row["id"])
+        self.assertEqual(self.run_cli("intake", "next")[0]["clue_id"], ids[1])
+        self.run_cli("intake", "clue-state", "--id", ids[1], "--state", "later")
+        self.run_cli("intake", "clue-state", "--id", ids[2], "--state", "declined")
+        brief = self.run_cli("context", "brief")[0]
+        self.assertEqual(brief["recovery"]["experience_discovery"]["clue_id"], ids[0])
+        self.assertEqual(brief["recovery"]["experience_discovery"]["deferred_count"], 1)
+        self.run_cli("onboarding", "preferences", "--file", self.file({"intent": "specific_jd"}))
+        self.assertIsNone(self.run_cli("intake", "next")[0]["prompt"])
+        self.run_cli("onboarding", "preferences", "--file", self.file({"intent": "experience_index"}))
+        self.run_cli("experience", "exclude", "--id", eid, "--reason", "用户不使用")
+        self.assertIsNone(self.run_cli("intake", "next")[0]["prompt"])
+        first = self.run_cli("intake", "clues", "--limit", 2)[0]
+        second = self.run_cli("intake", "clues", "--offset", first["next_offset"])[0]
+        self.assertEqual(len(first["items"]) + len(second["items"]), 3)
+
+    def test_history_skipped_page_does_not_certify_full_coverage(self):
+        self.run_cli("init")
+        path = self.file([{"role": "user", "content": "甲乙丙丁" * 10}])
+        self.run_cli("intake", "history-consent", "--answer", "allow", "--scope", path)
+        self.run_cli("history", "extract", "--file", path, "--source", "user", "--max-chars", 8, "--offset", 9)
+        self.assertEqual(self.run_cli("intake", "next")[0]["history_action"]["files"][0]["offset"], 0)
+
+        self.run_cli("history", "extract", "--file", path, "--source", "user", "--max-chars", 100)
+        self.assertIsNone(self.run_cli("intake", "next")[0]["history_action"])
+        Path(path).write_text(json.dumps([{"role": "user", "content": "新的记录" * 20}]), encoding="utf-8")
+        self.run_cli("history", "extract", "--file", path, "--source", "user", "--max-chars", 8, "--offset", 2)
+        self.assertEqual(self.run_cli("intake", "next")[0]["history_action"]["files"][0]["offset"], 0)
 
     def test_multiple_channels_make_one_honest_report(self):
         run = self.run_cli("search-run", "start", "--file", self.file({
