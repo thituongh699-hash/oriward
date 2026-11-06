@@ -5,9 +5,9 @@ description: Collect vacancies through supported local search, connected-browser
 
 # Job search
 
-Reuse role, seniority, location and exclusions; ask only for missing constraints. For career changes, return to work or first entry, check actual eligibility, availability and deadlines from current sources; verify graduation timing only when relevant. Keep the first batch compatible with preparation capacity.
+Reuse role, location and exclusions; ask only for missing constraints. Check current eligibility and deadlines, including graduation timing when relevant. Match the first batch to preparation capacity.
 
-At first use, `python -m oriward onboarding status` persists a lightweight index-first default and reuses confirmed profile targets and constraints. Use `onboarding missing` before asking; save answers with `onboarding preferences --file <private-json>` (`companies`, `roles`, `constraints`, `intent`). Channel preference is separate from actual connection: `onboarding channel-intent --provider <id> --preference connect_now|later|declined|public_only` never enables an extension or logs in. Do not repeat a deferred or declined prompt. Record a connected state only after a real minimal-read receipt using `onboarding channel-state`.
+First use defaults to deep discovery. With an existing resume and explicit direct search/application request, use `onboarding missing --before-search --existing-resume --direct-search-and-apply`; record the library offer via `intake discovery-offer`. On entering search, use `onboarding missing --before-search` and record recurring-search choice via `intake search-schedule`. Check actual scheduling and calendar options with the user; a preference does not create a task. Reuse targets. `onboarding channel-intent` does not connect; `onboarding channel-state` needs a read receipt. Do not repeat deferred prompts.
 
 1. Inspect `jobs channels` and read [CHINA_JOB_SOURCES](../../../docs/CHINA_JOB_SOURCES.md); reuse onboarding answers and ask only what this search needs.
 2. Default to the staged search pipeline: actual coverage receipts for enabled routes, repairs, two expansions, sourced company scans, then experience-derived directions checked against complete JDs. A plan is not an attempt.

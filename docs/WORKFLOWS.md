@@ -20,14 +20,16 @@
 
 ## 启动与接续
 
-首次默认搭建经历库，主动建议从用户指定的历史对话建立初步经历库，可选允许、稍后或拒绝。允许仅限明确指定的导出文件；提取保留用户、模型和工具说话方，不把模型建议当成用户经历：
+首次默认深入挖掘经历：从用户的故事、现有简历或授权历史整理职业/教育时间线，再逐段追问本人动作、判断、难点、结果和可迁移能力，每轮只问一个最有价值的问题，边聊边保存。主动建议从用户指定的历史对话恢复经历，可选允许、稍后或拒绝。允许仅限明确指定的导出文件；提取保留用户、模型和工具说话方，不把模型建议当成用户经历：
 
 ```text
 python -m oriward intake history-consent --answer allow --scope data/private/chat-export.jsonl
 python -m oriward history extract --file data/private/chat-export.jsonl --source user --offset 0 --max-chars 12000
 ```
 
-通过自然对话恢复工作、经营、教育、项目和非标准就业经历，先整理简略时间线、关联原始细节。清晰自述足以保存和写稿，不要求逐条经历批准、证明附件或精确 KPI；每轮围绕一条有价值的线索追问，逐步恢复具体事件、本人动作、判断、困难和结果；先保存已知事实，再继续提问。提取不会自动写入经历；使用既有 experience add/revise 保存。仅在进入搜索意图（intent:search 或 onboarding missing --before-search）且经历和地点可用后，提示是否需要定时搜索；`intake search-schedule --answer now|later|no` 记录意愿，宿主建立任务前确认时间、时区和范围。每日最多制作三份新的高相关岗位简历，保持未投递；无变化时安静。此命令本身不创建任务。
+清晰自述足以保存和写稿，不要求逐条经历批准、证明附件或精确 KPI；先保存已知事实，再继续提问。提取不会自动写入经历；使用既有 experience add/revise 保存。首次只有**用户提供已有简历，且明确要求直接搜索岗位并投递**时才走快捷路径：`onboarding missing --before-search --existing-resume --direct-search-and-apply`。先推进当前求职任务，同时询问是否深入挖掘、补建可复用经历库；用 `intake discovery-offer --answer now|later|no` 记录，不强迫先完成深访。已有简历只是材料来源，仍需核实关键信息；准备投递不等于自动提交。
+
+进入岗位搜索时调用 `onboarding missing --before-search`，主动询问是否定期搜索新机会；进入个人提升时调用 `onboarding missing --before-learning`，主动询问是否定期回顾计划、督促实际进度。分别用 `intake search-schedule --answer now|later|no`、`intake learning-schedule --answer now|later|no` 记录意愿，稍后或拒绝不反复询问。选择现在后，Agent 结合实际宿主能力和用户的求职/学习节奏，确定频率、时间、时区、搜索范围或复盘节点；可用日历或关键截止日适合联动时，主动问是否接入用户使用的日历。没有可用能力则说明限制，不能把意愿写成已生效的提醒。定时搜岗每日最多制作三份新的高相关岗位简历，保持未投递；无变化时安静。这些 CLI 命令都不会创建定时任务或日历事件。
 
 默认上下文先保留恢复包：当前话题和下一步、身份/教育/城市安排、相关目标、可执行动作或阻塞、经历索引入口、岗位/简历 ID、暂停分支数量和恢复入口、重要更正及冲突。`context brief --focus <主题>` 优先当前主题；`context section --name <章节>` 展开详情。默认 3200 字符按实际 JSON 计数；过小预算无法容纳最小信息时明确报告 `over_budget`。
 
@@ -78,7 +80,7 @@ python -m oriward intake clues --offset 0 --limit 10
 
 示例 ID/回执替换为实际值，先完成经历保存才能标记回答已落库。`intake next` 最多推荐一个问题；暂缓/拒绝不自动重开，关联已排除经历不再推荐。当前用户话题优先于排序，已有回答应先消除重复线索。没有待问线索不表示整个经历库已经完整，也不阻止用户先写稿或搜索。
 
-首次以简略经历盘点为主：做过什么、本人主要动作、已知结果和探索性标签。复用已有材料，不要求完整深访、证明文件或量化 KPI 才能开始。目标职位/公司、安排和渠道接入问题延后到搜索相关任务；已有紧急 JD 时直接处理。只问当前最有帮助的问题，不为补齐字段逐项盘问；暂缓/拒绝后不反复追问：
+首次以深入经历挖掘为默认：先盘点做过什么，再围绕最有价值的阶段逐步还原本人动作、判断、困难和结果。复用已有材料，不要求证明文件或量化 KPI 才能开始。目标职位/公司、安排和渠道接入问题延后到搜索相关任务；已有紧急 JD 时先处理具体任务。只问当前最有帮助的问题，不为补齐字段逐项盘问；暂缓/拒绝后不反复追问：
 
 ```text
 python -m oriward onboarding preferences --file data/private/preferences.json

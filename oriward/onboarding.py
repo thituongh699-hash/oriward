@@ -34,6 +34,8 @@ def _load(conn):
         state = deserialize(row["data"])
         state.setdefault("history_intake", {"answer": "unasked", "scope": []})
         state.setdefault("scheduled_search", "unasked")
+        state.setdefault("scheduled_learning", "unasked")
+        state.setdefault("discovery_offer", "unasked")
         state.setdefault("discovery_clues", [])
         state.setdefault("next_clue_id", 1)
         state.setdefault("history_reads", {})
@@ -41,7 +43,8 @@ def _load(conn):
     return {"version": 1, "intent": "experience_index", "companies": [], "roles": [],
             "constraints": {}, "prompts": {}, "channels": {}, "preference_sources": {}, "current_topic": None,
             "paused_branches": [], "next_branch_id": 1, "history_intake": {"answer": "unasked", "scope": []},
-            "scheduled_search": "unasked", "discovery_clues": [], "next_clue_id": 1, "history_reads": {}}
+            "scheduled_search": "unasked", "scheduled_learning": "unasked",
+            "discovery_offer": "unasked", "discovery_clues": [], "next_clue_id": 1, "history_reads": {}}
 
 
 def _save(conn, state):
@@ -159,19 +162,30 @@ def set_channel_connection(provider, state, *, detail="", validation_receipt=Non
     return {"provider": provider, **channel}
 
 
-def missing_prompts(*, before_search=False):
+def missing_prompts(*, before_search=False, before_learning=False,
+                    existing_resume=False, direct_search_and_apply=False):
     """Return prompts once until answered, declined or explicitly deferred.
 
     Merely displaying a prompt is not an answer; a still-unanswered channel
     choice can therefore be raised again immediately before the first search.
     """
     value = status()
-    if not before_search and value["intent"] == "experience_index":
-        next_step = discovery_next(value)
+    from .experience_library import list_current
+    has_experience = bool(list_current())
+    fast_track = before_search and existing_resume and direct_search_and_apply
+    if not fast_track and (not has_experience or (not before_search and not before_learning and value["intent"] == "experience_index")):
+        next_step = discovery_next(value, force=before_search or not has_experience)
         return {"prompts": [next_step["prompt"]] if next_step.get("prompt") else [],
                 "known": {key: value[key] for key in ("intent", "companies", "roles", "constraints", "channels")},
-                "default_next_step": "build_experience_library", "blocks_search": False,
+                "default_next_step": "deep_experience_discovery", "blocks_search": False,
                 "discovery": next_step}
+    if before_learning:
+        prompts = []
+        if value["scheduled_learning"] == "unasked":
+            prompts.append({"field": "scheduled_learning", "question": "是否定期回顾个人提升计划、提醒下一步并更新实际进度？可选现在、稍后或不需要。",
+                            "choices": ["now", "later", "no"]})
+        return {"prompts": prompts, "known": {"scheduled_learning": value["scheduled_learning"]},
+                "default_next_step": "review_learning_progress", "blocks_search": False}
     questions = {"intent": "先简略盘点经历、探索方向，还是处理已有职位/公司/JD？",
                  "companies": "有目标公司吗？暂时没有也可以先探索。",
                  "roles": "有目标职位吗？暂时没有可从经历索引提出少量可修订方向。",
@@ -184,14 +198,17 @@ def missing_prompts(*, before_search=False):
         prompts.append({"field": "channels", "question": "是否现在配置并验证猎聘等可用渠道，或稍后接入、先用公开渠道和已有链接？",
                         "stage": "before_search" if before_search else "first_use"})
     intake = value.get("history_intake", {"answer": "unasked", "scope": []})
-    if intake.get("answer", "unasked") == "unasked":
+    if not fast_track and intake.get("answer", "unasked") == "unasked":
         prompts.append({"field": "history_intake", "question": "是否允许读取你指定的 Agent 对话/导出文件？可授权指定范围、稍后或拒绝；未授权前不会读取。",
                         "choices": ["allow", "later", "decline"]})
-    if (before_search or value["intent"] == "search") and _scheduled_search_ready(value) and value.get("scheduled_search", "unasked") == "unasked":
-        prompts.append({"field": "scheduled_search", "question": "经历索引和城市约束已可用。是否安排周期性岗位搜索？可选现在、稍后或不需要。",
+    if fast_track and value["discovery_offer"] == "unasked":
+        prompts.append({"field": "discovery_offer", "question": "可以先用现有简历搜索和准备投递。是否也要深入挖掘经历、补建可持续复用的经历库？",
+                        "choices": ["now", "later", "no"]})
+    if (before_search or value["intent"] == "search") and value.get("scheduled_search", "unasked") == "unasked":
+        prompts.append({"field": "scheduled_search", "question": "是否定期搜索新的求职机会并回报变化？可选现在、稍后或不需要。",
                         "choices": ["now", "later", "no"]})
     return {"prompts": prompts, "known": {key: value[key] for key in ("intent", "companies", "roles", "constraints", "channels")},
-            "default_next_step": "lightweight_experience_index", "blocks_search": False}
+            "default_next_step": "direct_search_and_application" if fast_track else "continue_current_module", "blocks_search": False}
 
 
 def _pause(state, reason):
@@ -251,7 +268,8 @@ def resume_topic(branch_id):
 def continuation():
     value = status()
     return {key: value[key] for key in ("intent", "companies", "roles", "constraints", "channels",
-                                       "current_topic", "paused_branches", "history_intake", "scheduled_search")}
+                                       "current_topic", "paused_branches", "history_intake", "scheduled_search",
+                                       "scheduled_learning", "discovery_offer")}
 
 
 CLUE_STATES = {"open", "answered", "later", "declined"}
@@ -328,7 +346,7 @@ def record_history_read(receipt):
         _save(conn, state)
 
 
-def discovery_next(state=None):
+def discovery_next(state=None, *, force=False):
     """Suggest one question, not a questionnaire or a library-completion gate."""
     from .experience_library import list_current
     value = state if state is not None else status()
@@ -353,7 +371,7 @@ def discovery_next(state=None):
         if pending:
             result["history_action"] = {"action": "extract_authorized_history", "files": pending,
                                         "rule": "Read the next page, save clear self-reports and recall clues; extraction is not semantic verification."}
-    if value["intent"] != "experience_index":
+    if value["intent"] != "experience_index" and value["discovery_offer"] != "now" and not force:
         result["next_action"] = "follow_current_task"
         return result
     if eligible:
@@ -391,30 +409,45 @@ def set_history_intake(answer, *, scope=None):
     return state["history_intake"]
 
 
-def _scheduled_search_ready(state):
-    from .experience_library import list_current
-    try:
-        has_library = bool(list_current())
-    except Exception:
-        has_library = False
-    constraints = state.get("constraints", {})
-    has_location = any(key in constraints and constraints[key] for key in ("location", "target_locations", "city"))
-    return has_library and has_location
+def set_discovery_offer(answer):
+    if answer not in {"now", "later", "no"}:
+        raise ValidationError("discovery offer answer must be now, later, or no")
+    with connect() as conn:
+        state = _load(conn)
+        state["discovery_offer"] = answer
+        state["discovery_offer_answered_at"] = now()
+        _save(conn, state)
+    return {"answer": answer, "next_action": "intake next" if answer == "now" else None}
+
+
+def _set_schedule(kind, answer):
+    if answer not in {"now", "later", "no"}:
+        raise ValidationError("schedule answer must be now, later, or no")
+    field = f"scheduled_{kind}"
+    with connect() as conn:
+        state = _load(conn)
+        state[field] = answer
+        state[f"{field}_answered_at"] = now()
+        _save(conn, state)
+    search = kind == "search"
+    return {"answer": answer, "host_task": {
+        "requested": answer == "now", "max_new_tailored_resumes_per_day": 3 if search else 0,
+        "create_automation": False,
+        "setup": ("Check the user's actual environment and available scheduling tools; agree on frequency, time, timezone and scope. "
+                  "If a calendar is available or deadlines make it useful, ask whether to link it before creating calendar events. "
+                  "Do not claim an automation or calendar link exists until the host confirms creation.") if answer == "now" else None,
+        "reusable_task": (("Use the available resume, saved experience library and confirmed city/availability constraints to run a sourced job search; "
+                          "report channels, failures and retrieval dates, shortlist evidence-fit roles, and prepare at most three new tailored "
+                          "resume drafts per day for local review. Never submit applications or claim unconfirmed facts. Stay quiet while results "
+                          "are unchanged; report only new matches, material changes, failures or required user action.") if search else
+                          ("Review the user's current learning plan, actual milestones and capacity; ask for progress rather than assuming completion. "
+                           "Report the next practical step, blockers and any needed plan adjustment; record updates only from user-confirmed activity."))
+                         if answer == "now" else None}}
 
 
 def set_scheduled_search(answer):
-    if answer not in {"now", "later", "no"}:
-        raise ValidationError("scheduled search answer must be now, later, or no")
-    with connect() as conn:
-        state = _load(conn)
-        state["scheduled_search"] = answer
-        state["scheduled_search_answered_at"] = now()
-        _save(conn, state)
-    # Host task is a reusable request only; no automation is created here.
-    return {"answer": answer, "host_task": {
-        "requested": answer == "now", "max_new_tailored_resumes_per_day": 3,
-        "create_automation": False,
-        "reusable_task": ("Use the saved experience library and confirmed city/availability constraints to run a sourced job search; "
-                          "report channels, failures and retrieval dates, shortlist evidence-fit roles, and prepare at most three new tailored "
-                          "resume drafts per day for local review. Never submit applications or claim unconfirmed facts. Stay quiet while results "
-                          "are unchanged; report only new matches, material changes, failures or required user action.") if answer == "now" else None}}
+    return _set_schedule("search", answer)
+
+
+def set_scheduled_learning(answer):
+    return _set_schedule("learning", answer)

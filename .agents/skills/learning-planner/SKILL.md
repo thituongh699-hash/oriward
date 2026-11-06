@@ -5,7 +5,9 @@ description: Convert evidenced role gaps and review findings into prioritized pr
 
 # Learning planner
 
-Fit a small plan to weekly capacity, work, caring responsibilities, time away and real deadlines. Study or personal projects may provide evidence. Revise workload as capacity changes; do not treat an overloaded checklist as a cure for anxiety or claim unsupported background reminders.
+Fit a small plan to weekly capacity, responsibilities and deadlines. Study or projects may provide evidence. Revise workload as capacity changes; do not claim background reminders without a receipt.
+
+On entering personal growth, use `onboarding missing --before-learning` to offer check-ins and record `intake learning-schedule`. Agree on time, timezone and useful calendar linkage. Ask for actual progress before updating the plan.
 
 1. Read the user's target, transferable actions and any relevant analyses, optional review findings or feedback. A formal review is not a prerequisite. Separate unknown evidence, preparation risk and missing capability.
 2. Route `practice` to rehearsal, `evidence` to an artifact/credential, and `retarget` to a role/level change. Structural deficits do not become wording tasks.

@@ -24,7 +24,7 @@ class OnboardingTests(unittest.TestCase):
         self.assertEqual(state["channels"], {})
         prompts = o.missing_prompts()
         self.assertFalse(prompts["blocks_search"])
-        self.assertEqual(prompts["default_next_step"], "build_experience_library")
+        self.assertEqual(prompts["default_next_step"], "deep_experience_discovery")
         self.assertEqual({p["field"] for p in prompts["prompts"]}, {"history_intake"})
         with connect() as conn:
             saved = deserialize(conn.execute("SELECT data FROM career_settings WHERE key='onboarding'").fetchone()[0])
@@ -37,11 +37,11 @@ class OnboardingTests(unittest.TestCase):
         o.mark_prompt("intent", "later")
         o.set_channel_preference("liepin", "later")
         o.set_history_intake("later")
-        self.assertEqual(o.missing_prompts(before_search=True)["prompts"], [])
+        self.assertEqual(o.missing_prompts(before_search=True)["default_next_step"], "deep_experience_discovery")
         o.set_channel_preference("liepin", "declined")
         self.assertEqual(o.missing_prompts()["prompts"][0]["field"], "experience_story")
         o.set_channel_preference("liepin", "unasked")
-        self.assertEqual([p["field"] for p in o.missing_prompts(before_search=True)["prompts"]], ["channels"])
+        self.assertEqual(o.missing_prompts(before_search=True)["prompts"][0]["field"], "experience_story")
 
     def test_preference_does_not_enable_extension_or_establish_connection(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -118,6 +118,35 @@ class OnboardingTests(unittest.TestCase):
         self.assertEqual(result["host_task"]["max_new_tailored_resumes_per_day"], 3)
         self.assertFalse(result["host_task"]["create_automation"])
         self.assertNotIn("scheduled_search", {row["field"] for row in o.missing_prompts()["prompts"]})
+
+    def test_direct_search_requires_both_conditions_and_offers_discovery(self):
+        o.update_preferences(intent="search")
+        self.assertEqual(o.missing_prompts()["default_next_step"], "deep_experience_discovery")
+        self.assertEqual(o.missing_prompts(before_search=True)["default_next_step"], "deep_experience_discovery")
+        self.assertEqual(o.missing_prompts(before_search=True, existing_resume=True)["default_next_step"],
+                         "deep_experience_discovery")
+        fast = o.missing_prompts(before_search=True, existing_resume=True, direct_search_and_apply=True)
+        self.assertEqual(fast["default_next_step"], "direct_search_and_application")
+        self.assertIn("discovery_offer", {row["field"] for row in fast["prompts"]})
+        self.assertIn("scheduled_search", {row["field"] for row in fast["prompts"]})
+        self.assertNotIn("history_intake", {row["field"] for row in fast["prompts"]})
+        self.assertEqual(o.set_discovery_offer("later")["answer"], "later")
+        self.assertNotIn("discovery_offer", {row["field"] for row in o.missing_prompts(
+            before_search=True, existing_resume=True, direct_search_and_apply=True)["prompts"]})
+        o.set_discovery_offer("now")
+        self.assertEqual(o.discovery_next()["next_action"], "offer_history_recovery")
+
+    def test_learning_schedule_is_separate_and_requires_host_setup(self):
+        self.assertEqual(o.missing_prompts(before_learning=True)["default_next_step"], "deep_experience_discovery")
+        services.add_object("experiences", {"event": "虚构实践", "actions": [], "outcomes": [], "evidence": []}, required=())
+        first = o.missing_prompts(before_learning=True)
+        self.assertEqual([row["field"] for row in first["prompts"]], ["scheduled_learning"])
+        result = o.set_scheduled_learning("now")
+        self.assertTrue(result["host_task"]["requested"])
+        self.assertFalse(result["host_task"]["create_automation"])
+        self.assertIn("calendar", result["host_task"]["setup"])
+        self.assertEqual(o.missing_prompts(before_learning=True)["prompts"], [])
+        self.assertEqual(o.continuation()["scheduled_learning"], "now")
 
     def test_history_cli_reads_only_exactly_authorized_file(self):
         source = Path(self.temp.name) / "fictional.jsonl"

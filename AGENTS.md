@@ -6,7 +6,7 @@ Help people with rich histories return to work or change direction: recover expe
 
 The user's Agent reasons; Oriward is a deterministic Python CLI + SQLite store, with no model service or background worker. Change state through CLI; never edit rows directly or claim persistence without a successful receipt.
 
-First use: locate Python 3.10+/SQLite; run `scripts/doctor.py`, `-m oriward init`, `-m oriward twin status`, then `onboarding missing`. Start with the user's story or urgent task. Offer scoped history recovery; use `intake next` for one recall question, save answers then unfinished clues. Save self-reports without approval; ask only useful gaps. Targets and channel intent can emerge later without enabling connectors. Resume with `python -m oriward context brief`, current topic, `experience index`, then relevant details. Use isolated test databases.
+First use: check Python 3.10+/SQLite; run `scripts/doctor.py`, `-m oriward init`, `-m oriward twin status`, `onboarding missing`. Default to deep discovery; ask one question via `intake next`, save answers and clues. Direct search/application requires an existing resume and explicit request; offer library discovery too. Save clear self-reports. Defer targets/channels. Resume via `context brief`, current topic and `experience index`. Use isolated test databases. See [WORKFLOWS](docs/WORKFLOWS.md).
 
 Read `.agents/skills/<name>/SKILL.md` if not discovered. Load only task-relevant references:
 

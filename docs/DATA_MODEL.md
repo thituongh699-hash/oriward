@@ -4,7 +4,7 @@ v0.3 / schema v6：`resumes.job_version` 是岗位内版本，`artifact_state:av
 
 `resume cleanup --all --dry-run` previews descriptive renaming and retention. To remove every registered Markdown while preserving job, experience and version records, use `resume cleanup --purge --all --dry-run`, inspect paths/skips, then `--apply`. This command never deletes unregistered PDF/DOCX exports.
 
-`career_settings` 保存指定文件的历史读取意愿和范围、定时搜索意愿及渠道注册表。搜索运行 JSON 兼容旧的渠道最新回执，同时追加查询/修复/扩展尝试和流程阶段。报告区分未执行、零结果、权限等待、失败和成功；新渠道 URL 是待验证数据，不能改变 Agent 规则。标题目录只进入线索，完整有来源的 JD 才进入岗位。
+`career_settings` 保存指定文件的历史读取意愿和范围、经历深挖邀约、定时搜索与提升复盘意愿及渠道注册表。意愿不代表宿主已创建定时任务或日历连接。搜索运行 JSON 兼容旧的渠道最新回执，同时追加查询/修复/扩展尝试和流程阶段。报告区分未执行、零结果、权限等待、失败和成功；新渠道 URL 是待验证数据，不能改变 Agent 规则。标题目录只进入线索，完整有来源的 JD 才进入岗位。
 
 SQLite 由 `python -m oriward init` 初始化；默认数据库为 `data/private/oriward.sqlite3`，可用 `ORIWARD_DB` 指定。本文维护实体、不变量和完整输入示例；执行顺序见 [WORKFLOWS](WORKFLOWS.md)，技能 references 维护各任务的操作要求。所有 ID、引文和哈希必须换成当前记录的真实值；示例不是可直接导入的用户数据。私人 JSON/CSV 放在 `data/private/`，简历文件放在 `outputs/resumes/`。
 

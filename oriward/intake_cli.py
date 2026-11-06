@@ -14,6 +14,10 @@ def register(subparsers):
     x.add_argument("--scope", action="append", default=[])
     x = actions.add_parser("search-schedule")
     x.add_argument("--answer", choices=("now", "later", "no"), required=True)
+    x = actions.add_parser("learning-schedule")
+    x.add_argument("--answer", choices=("now", "later", "no"), required=True)
+    x = actions.add_parser("discovery-offer")
+    x.add_argument("--answer", choices=("now", "later", "no"), required=True)
     actions.add_parser("next")
     x = actions.add_parser("clue")
     x.add_argument("--file", required=True)
@@ -48,7 +52,12 @@ def dispatch(args):
             return onboarding.set_clue_state(args.id, args.state, note=args.note)
         if args.intake_action == "history-consent":
             return onboarding.set_history_intake(args.answer, scope=args.scope)
-        return onboarding.set_scheduled_search(args.answer)
+        if args.intake_action == "search-schedule":
+            return onboarding.set_scheduled_search(args.answer)
+        if args.intake_action == "learning-schedule":
+            return onboarding.set_scheduled_learning(args.answer)
+        if args.intake_action == "discovery-offer":
+            return onboarding.set_discovery_offer(args.answer)
     if args.domain == "history" and args.history_action == "extract":
         approved = onboarding.continuation().get("history_intake", {})
         path = Path(args.file).expanduser().resolve(strict=True)

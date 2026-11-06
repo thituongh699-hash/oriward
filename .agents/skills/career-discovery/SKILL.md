@@ -5,7 +5,7 @@ description: Recover work, business, education, projects and informal responsibi
 
 # Career discovery
 
-Recover rich or fragmented histories, including employment, business, caring, volunteering, study and setbacks. First use prioritises the experience library, not target jobs or channels. Start wherever the user wants; an urgent task takes precedence. Never invent titles, ownership, dates, tools, metrics or outcomes.
+Deep discovery is the first-use default, from a story, resume or authorized history. Only an existing resume plus an explicit request for immediate search and application permits the direct route; offer to deepen the library too. Never invent titles, ownership, dates, tools, metrics or outcomes.
 
 1. Read `context brief`, current topic, `intake next` and `experience index`; page the full index, then load relevant details. Load [experience and history contract](references/experience-contract.md) when starting discovery or resuming history intake. Reuse known answers. Use `$career-mapping` when directions are wanted.
 2. Proactively offer to build an initial timeline from specified past chats. Reuse existing scoped authorization without asking again. Read authorized user messages before asking questions they already answer. The CLI supports exact export files; host chat tools require explicit chat scope. No available history access, deferral or refusal means start from the user's story, not a blocked intake. Never scan all private chats or treat assistant text as personal achievements.

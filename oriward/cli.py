@@ -255,6 +255,9 @@ def run(argv=None):
     oa = setup.add_subparsers(dest="action", required=True)
     oa.add_parser("status")
     x = oa.add_parser("missing"); x.add_argument("--before-search", action="store_true")
+    x.add_argument("--before-learning", action="store_true")
+    x.add_argument("--existing-resume", action="store_true")
+    x.add_argument("--direct-search-and-apply", action="store_true")
     x = oa.add_parser("preferences"); x.add_argument("--file", required=True)
     x = oa.add_parser("prompt"); x.add_argument("--field", required=True)
     x.add_argument("--state", required=True, choices=sorted(onboarding.PROMPT_STATES))
@@ -507,7 +510,9 @@ def run(argv=None):
         return
     if args.domain == "onboarding":
         if args.action == "status": p(onboarding.status())
-        elif args.action == "missing": p(onboarding.missing_prompts(before_search=args.before_search))
+        elif args.action == "missing": p(onboarding.missing_prompts(
+            before_search=args.before_search, before_learning=args.before_learning,
+            existing_resume=args.existing_resume, direct_search_and_apply=args.direct_search_and_apply))
         elif args.action == "preferences":
             p(onboarding.update_preferences(**pick(s.json_file(args.file), ("companies", "roles", "constraints", "intent"), "preferences")))
         elif args.action == "prompt": p(onboarding.mark_prompt(args.field, args.state))

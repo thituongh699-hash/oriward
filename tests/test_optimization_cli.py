@@ -34,16 +34,28 @@ class OptimizationCliTests(unittest.TestCase):
             cli.run(list(map(str, args)))
         return json.loads(output.getvalue()), output.getvalue().rstrip("\n")
 
+    def test_onboarding_schedule_and_discovery_cli_routes(self):
+        self.run_cli("init")
+        direct = self.run_cli("onboarding", "missing", "--before-search", "--existing-resume",
+                              "--direct-search-and-apply")[0]
+        self.assertIn("discovery_offer", {row["field"] for row in direct["prompts"]})
+        self.assertEqual(self.run_cli("intake", "discovery-offer", "--answer", "now")[0]["next_action"],
+                         "intake next")
+        self.assertEqual(self.run_cli("intake", "next")[0]["next_action"], "offer_history_recovery")
+        self.assertEqual(self.run_cli("intake", "learning-schedule", "--answer", "later")[0]["answer"],
+                         "later")
+
     def test_first_use_continuation_and_selective_output_are_real_cli_contracts(self):
         self.assertEqual(self.run_cli("init")[0]["schema_version"], 6)
         initial = self.run_cli("onboarding", "missing")[0]
-        self.assertEqual(initial["default_next_step"], "build_experience_library")
+        self.assertEqual(initial["default_next_step"], "deep_experience_discovery")
         self.assertEqual([q["field"] for q in initial["prompts"]], ["history_intake"])
         self.run_cli("onboarding", "preferences", "--file", self.file({
             "companies": [], "roles": [], "constraints": {}, "intent": "experience_index"}))
         self.run_cli("onboarding", "channel-intent", "--provider", "liepin", "--preference", "later")
         self.run_cli("intake", "history-consent", "--answer", "later")
-        self.assertEqual(self.run_cli("onboarding", "missing", "--before-search")[0]["prompts"], [])
+        self.assertEqual(self.run_cli("onboarding", "missing", "--before-search")[0]["default_next_step"],
+                         "deep_experience_discovery")
         first = self.run_cli("onboarding", "topic", "--title", "课程项目", "--next-action", "补充本人动作")[0]
         current = self.run_cli("onboarding", "topic", "--title", "研究任务", "--next-action", "说明分析过程")[0]
         for i in range(20):
