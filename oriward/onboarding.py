@@ -438,9 +438,12 @@ def _set_schedule(kind, answer):
                   "Do not claim an automation or calendar link exists until the host confirms creation.") if answer == "now" else None,
         "reusable_task": (("Use the available resume, saved experience library and confirmed city/availability constraints to run a sourced job search; "
                           "report channels, failures and retrieval dates, shortlist evidence-fit roles, and prepare at most three new tailored "
-                          "resume drafts per day for local review. Never submit applications or claim unconfirmed facts. Stay quiet while results "
+                          "resume drafts per day for local review. Include a sourced resume market-report when enough distinct JDs exist; "
+                          "treat its patterns as candidate market observations, never as user skills or automatic profile updates. "
+                          "Never submit applications or claim unconfirmed facts. Stay quiet while results "
                           "are unchanged; report only new matches, material changes, failures or required user action.") if search else
                           ("Review the user's current learning plan, actual milestones and capacity; ask for progress rather than assuming completion. "
+                           "If a sourced resume market-report shows repeated new role requirements, offer a focused practice or resume review. "
                            "Report the next practical step, blockers and any needed plan adjustment; record updates only from user-confirmed activity."))
                          if answer == "now" else None}}
 

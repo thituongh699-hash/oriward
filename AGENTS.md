@@ -46,7 +46,7 @@ Use [WORKFLOWS](docs/WORKFLOWS.md) for commands, [DATA_MODEL](docs/DATA_MODEL.md
 
 ## Repository maintenance
 
-SQLite defaults to `data/private/oriward.sqlite3` (override: `ORIWARD_DB`); schema v6 uses consistent upgrade backups. Use isolated fictional tests. Core stays standard-library-only; document dependencies remain optional. Read every page of the experience index, then relevant details. Build the complete education/career skeleton; expand relevant work, translate transferable work and briefly retain other stages. Honour explicit exclusions, preserve real gaps and dates. Compose using natural wording with background source mapping; no approved_for_resume gate. Respect personal template preferences without imposing one person's layout globally. Resume hashes never gate operations. Keep current + three historical Markdown files per job; preserve private state.
+SQLite defaults to `data/private/oriward.sqlite3` (override: `ORIWARD_DB`); schema v7 backs up upgrades. Use isolated fictional tests. Core stays standard-library-only; document dependencies remain optional. Read the full experience index, then relevant details. Build the complete education/career skeleton; expand relevant work, translate transferable work and briefly retain other stages. Honour exclusions, gaps and dates. Compose naturally with source mapping; no approved_for_resume gate. Imported resumes are source documents, not long-term facts; `resume align` is only a comparison hint. Respect personal templates without imposing one layout globally. Resume hashes never gate operations. Keep current + three historical Markdown files per job; preserve private state.
 
 Legacy settings remain readable; new variables take precedence.
 

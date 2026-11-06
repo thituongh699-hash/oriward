@@ -1,6 +1,6 @@
 # Data model and contracts
 
-v0.3 / schema v6：`resumes.job_version` 是岗位内版本，`artifact_state:available|pruned` 标记正文状态。升级为旧记录回填版本，不删除正文。`resume_versions` 保留来源映射、历史确认与修订关系；直接 compose 的根记录以自身为基线，历史遍历在根终止。旧哈希字段只兼容保留，不再阻断简历确认、评审或导出；JD 和事实来源变更检测保留。
+当前 schema v7：`resumes.job_version` 是岗位内版本，`artifact_state:available|pruned` 标记正文状态。升级为旧记录回填版本，不删除正文。`resume_versions` 保留来源映射、历史确认与修订关系；直接 compose 的根记录以自身为基线，历史遍历在根终止。旧哈希字段只兼容保留，不再阻断简历确认、评审或导出；JD 和事实来源变更检测保留。`resume_inputs` 保存导入文件在私人目录的路径、格式、原文件摘要、提取行及解析警告；不会自动生成经历或用户断言。
 
 `resume cleanup --all --dry-run` previews descriptive renaming and retention. To remove every registered Markdown while preserving job, experience and version records, use `resume cleanup --purge --all --dry-run`, inspect paths/skips, then `--apply`. This command never deletes unregistered PDF/DOCX exports.
 
@@ -269,7 +269,7 @@ READY_FOR_USER -> SUBMITTED -> INTERVIEW -> OFFER -> ACCEPTED
 
 ## Career Twin Core
 
-当前 schema v6。结构变更由 `oriward/migrations.py` 的 `MIGRATIONS` 序列管理，记录于 `schema_migrations`；升级非空库前通过 SQLite backup API 写出 `oriward.sqlite3.bak-v<旧版本>-<时间戳>`，包含已提交 WAL 内容并校验备份完整性。
+当前 schema v7。结构变更由 `oriward/migrations.py` 的 `MIGRATIONS` 序列管理，记录于 `schema_migrations`；升级非空库前通过 SQLite backup API 写出 `oriward.sqlite3.bak-v<旧版本>-<时间戳>`，包含已提交 WAL 内容并校验备份完整性。
 
 | 表 | 关键字段 | 不变量 |
 | --- | --- | --- |

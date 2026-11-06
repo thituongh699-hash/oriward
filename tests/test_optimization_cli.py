@@ -46,7 +46,7 @@ class OptimizationCliTests(unittest.TestCase):
                          "later")
 
     def test_first_use_continuation_and_selective_output_are_real_cli_contracts(self):
-        self.assertEqual(self.run_cli("init")[0]["schema_version"], 6)
+        self.assertEqual(self.run_cli("init")[0]["schema_version"], 7)
         initial = self.run_cli("onboarding", "missing")[0]
         self.assertEqual(initial["default_next_step"], "deep_experience_discovery")
         self.assertEqual([q["field"] for q in initial["prompts"]], ["history_intake"])

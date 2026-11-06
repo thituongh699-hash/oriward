@@ -374,6 +374,18 @@ MIGRATIONS = [
     {"version": 4, "name": "decision_and_goal_history", "sql": DECISION_SQL, "post": _seed_goal_history},
     {"version": 5, "name": "experience_library_and_search_runs", "sql": LIBRARY_SQL, "post": None},
     {"version": 6, "name": "resume_artifact_retention", "sql": "SELECT 1;", "post": _resume_artifacts},
+    {"version": 7, "name": "resume_import_sources", "sql": """
+CREATE TABLE IF NOT EXISTS resume_inputs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    original_name TEXT NOT NULL,
+    format TEXT NOT NULL,
+    private_path TEXT NOT NULL,
+    source_hash TEXT NOT NULL,
+    lines_json TEXT NOT NULL,
+    warnings_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+""", "post": None},
 ]
 
 

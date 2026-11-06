@@ -56,6 +56,10 @@ python -m oriward pipeline show --job-id 1
 
 ## 按岗位定制与保留版本
 
+已有简历先走 `resume import --file <PDF|DOCX|TXT|MD>`，读取 `resume input --id <id>` 的逐行文本及解析警告，对照原件核查页序和遗漏；PDF 需要可选 `[documents]` 依赖，扫描件需先 OCR。`resume align --input-id <id>` 只提供与现有经历库的文本相似候选，不自动合并事实。`resume diagnose --input-id <id> [--job-id <id>]` 或 `--resume-id <id>` 返回问题位置、影响、修改动作和解析限制；它不是录用概率或七阶段招聘评审。Agent 根据原件、已有经历和当前 JD 交完整稿，使用 `resume rewrite --input-id <id> --file <json> [--job-id <id>]` 登记来源行号；后续修改加 `--base-resume-id <id>`。导入材料留在数据库旁的私人目录，简历稿与其来源映射分开，未确认的文件叙述不自动成为长期经历事实。JSON 契约见 [简历契约](../.agents/skills/resume-builder/references/resume-review.md)。
+
+`resume market-report --days 30 [--family product|operations|sales_success|people_admin|finance|data_tech]` 只读汇总已保存岗位来源快照，按岗位、雇主和相同 JD 去重，比较相邻时间窗口；至少三个独立雇主的重复要求才标记为候选。新词组只作为待核对市场信号，不能自动证明个人技能或写入长期档案。定时搜岗/提升复盘如实际启用，可把报告作为输入，提示是否调整当前简历或实践计划；CLI 本身不创建提醒。
+
 先读取已有个人资料与完整经历索引，分页直到完成，按批加载细节。`resume tailor-packet --job-id <id>` 返回公司/JD、分析、`translation_focus` 及有界材料；使用 `--offset`/`--budget`，沿 `next_offset` 读取到 `has_more=false`，不能把首包当成全库。没有目标时省略 job ID，生成通用简历上下文，不伪造职位或强迫先选方向。理解岗位目的和 2–4 项交付，再把实际动作接到新岗位要求。展开相关经历、解释跨行业迁移价值、简述其他主要职业阶段，保留教育和时间脉络，尊重明确排除。通过 `resume compose --file <json>` 保存通用完整稿，有目标时加 `--job-id <id>`；输入见 [简历契约](../.agents/skills/resume-builder/references/resume-review.md)。
 
 用户已经讲清的事实直接使用，AI 主动完成专业改写、归纳和真实基础上的包装，交完整稿供用户阅读修改；不要求逐句引文或重复确认，不建立经历评级和审批队列。简介、资料栏目、标题及正文的来源在后台维护，项目链接放在对应经历下。可用 `experience_ids` 合并同阶段来源、`mode:brief` 简述、`exclude_experience_ids` 记录本稿明确排除；未使用的当前可用经历自动简述补回，仍需检查其表达质量。原始经历不被岗位文案覆盖；保留来源版本与历史，不伪造用户确认。缺一个数字时先用已知事实成稿，不阻断整份材料。
