@@ -270,8 +270,8 @@ def finish_run(run_id, *, counts=None, coverage="", next_action="", partial=Fals
             complete = next_packet(run_id).get("stage") == "complete"
             if not complete and (partial is not True or not isinstance(reason, str) or not reason.strip()):
                 raise ValidationError("Pipeline has pending stages; partial finish requires a reason")
-            if partial:
-                coverage = ("部分完成：" + reason.strip())
+        if partial:
+            coverage = ("部分完成：" + reason.strip())
         if counts is not None:
             _object(counts, "counts", 1000)
             if set(counts) - set(COUNT_KEYS):
@@ -352,6 +352,9 @@ def record_result(run_id, provider, result):
     reason = result.get("reason") or result.get("evidence") or result.get("note") or status
     if not isinstance(reason, str):
         reason = serialize(reason)
+    if result.get("page_receipts"):
+        reason += "; pages=" + ", ".join(f"{p['page']}:{p['status']}" for p in result["page_receipts"])
+        reason += "; stop=" + str(result.get("stop_reason", ""))
     if normalized == "zero_results" and not reason:
         reason = "Adapter returned a validated successful empty result list."
     retrieval = result.get("retrieval", {})
@@ -398,5 +401,5 @@ def execute_search(provider, scope, operation, *, output_dir=None, reraise=True)
             exc.report_path = run["report_path"]
             raise
         return {"status": "failed", "error": str(exc), "search_run_id": run["id"], "report_path": run["report_path"]}
-    finish_run(run["id"])
+    finish_run(run["id"], partial=bool(result.get("partial")), reason=str(result.get("stop_reason", "")))
     return {**result, "search_run_id": run["id"], "report_path": run["report_path"]}

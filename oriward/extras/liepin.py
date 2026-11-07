@@ -19,6 +19,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -41,11 +43,9 @@ class NoRedirect(HTTPRedirectHandler):
 def normalize(data, query, fetched_at):
     """Return ``(records, skipped)`` when the payload is trustworthy, else ``None``.
 
-    A single card whose detail URL is not the canonical ``/job/...shtml`` shape
-    (for example a social-hire ``/a/...`` page) must not discard an otherwise
-    valid page: that row is skipped and counted. The URL is never guessed or
-    rewritten, and a page where nothing is usable still requires validation
-    instead of being reported as a verified empty result.
+    Both official regular ``/job/`` and social-hire ``/a/`` URLs are retained.
+    Unknown URL shapes are skipped and counted; a page where nothing is usable
+    requires validation rather than being reported as a verified empty result.
     """
     if not isinstance(data, dict) or type(data.get("code")) is not int or data["code"] != 0:
         return None
@@ -66,7 +66,7 @@ def normalize(data, query, fetched_at):
                 return None
         except ValueError:
             return None
-        if not url.path.startswith("/job/") or not url.path.endswith(".shtml"):
+        if not re.fullmatch(r"/(?:job|a)/\d+\.shtml", url.path):
             skipped += 1
             continue
         fields = ("location", "salary", "education", "workYears", "industry")
@@ -97,13 +97,15 @@ def validated_result(data, metadata, limit):
     return result
 
 
-def search(query, location="", limit=10, refresh=False):
+def search(query, location="", limit=10, refresh=False, *, page=0):
     if not isinstance(query, str) or not query.strip() or len(query) > 120:
         raise ValidationError("query must be nonempty text of at most 120 characters")
     if not isinstance(location, str) or len(location) > 80:
         raise ValidationError("location must be text of at most 80 characters")
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValidationError("limit must be 1..100")
+    if type(page) is not int or not 0 <= page <= 99:
+        raise ValidationError("page must be 0..99")
     token = os.environ.get("LIEPIN_USER_TOKEN", "").strip()
     if not token:
         return {"provider": "liepin", "executed": False, "status": "AUTH_REQUIRED",
@@ -112,7 +114,7 @@ def search(query, location="", limit=10, refresh=False):
                 "scope": "job_search_only"}
     if len(token) > 8192 or not token.isascii() or any(ord(c) < 33 for c in token):
         raise ValidationError("Invalid credential format; re-enter locally")
-    payload = {"jobName": query.strip(), "page": 0}
+    payload = {"jobName": query.strip(), "page": page}
     if location.strip():
         payload["address"] = location.strip()
     # Account-separated cache; no credential or hash of the credential is output.
@@ -136,7 +138,7 @@ def search(query, location="", limit=10, refresh=False):
         data = json.loads(raw)
     except HTTPError as exc:
         status = "AUTH_REQUIRED" if exc.code in (401, 403) else "REQUEST_FAILED"
-        return {"provider": "liepin", "executed": False, "status": status, "http_status": exc.code}
+        return {"provider": "liepin", "executed": False, "request_sent": True, "status": status, "http_status": exc.code}
     except (URLError, TimeoutError, OSError, ValueError):
         # Server bodies / exception details can echo credentials. Never print them.
         raise ValidationError("Liepin request failed or returned invalid data; no jobs imported") from None
@@ -147,8 +149,50 @@ def search(query, location="", limit=10, refresh=False):
     metadata = {"provider": "liepin", "executed": False, "request_sent": True,
                 "status": "RESPONSE_REQUIRES_VALIDATION", "cache_hit": False,
                 "fetched_at": stamp.isoformat(timespec="seconds"), "response_path": str(response_path.resolve()),
-                "query": query.strip(), "location": location.strip(), "scope": "first_result_page",
+                "query": query.strip(), "location": location.strip(), "scope": f"result_page_{page}", "page": page,
                 "requested_local_limit": limit, "imported": 0,
-                "note": "HTTP response received; validate business status and result schema before importing. No pagination performed."}
+                "note": "HTTP response received; validate business status and result schema before importing."}
     cache.write_text(json.dumps({"metadata": metadata}), encoding="utf-8")
     return validated_result(data, metadata, limit)
+
+
+def search_pages(query, location="", limit=10, refresh=False, *, pages=1):
+    """Page the documented search endpoint; preserve earlier results on failure."""
+    if type(pages) is not int or not 1 <= pages <= 5:
+        raise ValidationError("pages must be 1..5")
+    if pages == 1:
+        return search(query, location, limit, refresh)
+    records, receipts, seen = [], [], set()
+    stop = "page_limit"
+    for page in range(pages):
+        if page:
+            time.sleep(1.1)
+        try:
+            result = search(query, location, 100, refresh, page=page)
+        except (ValueError, OSError):
+            result = {"status": "REQUEST_FAILED", "request_sent": True}
+        receipts.append({"page": page, "status": result["status"],
+                         "fetched_at": result.get("fetched_at"), "cache_hit": result.get("cache_hit", False),
+                         "count": len(result.get("records", []))})
+        if result["status"] != "SEARCH_VERIFIED":
+            if not records:
+                return {**result, "page_receipts": receipts}
+            stop = result["status"]
+            break
+        added = 0
+        for record in result["records"]:
+            if record["url"] not in seen:
+                seen.add(record["url"])
+                records.append(record)
+                added += 1
+        if len(records) >= limit:
+            stop = "result_limit"
+            break
+        if not result["records"] or not added:
+            stop = "empty_page" if not result["records"] else "repeated_page"
+            break
+    return {"provider": "liepin", "status": "SEARCH_VERIFIED", "executed": True,
+            "records": records[:limit], "returned_count": len(records[:limit]), "page_receipts": receipts,
+            "partial": stop in {"AUTH_REQUIRED", "REQUEST_FAILED", "RESPONSE_REQUIRES_VALIDATION"},
+            "stop_reason": stop, "scope": f"{len(receipts)} pages attempted, {len(records[:limit])} unique cards retained",
+            "note": "Official search cards only; partial page failures remain in page_receipts."}

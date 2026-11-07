@@ -155,6 +155,8 @@ python -m oriward goal list
 
 首次搜岗前读取 `onboarding missing --before-search`；复用目标职位/公司，无方向时从经历索引提出少量候选后再搜索验证。目标公司已知时优先官方招聘入口。`jobs search`、`leads fetch`、`jobs browser-record`、`jobs sync`、`official fetch` 自动登记搜索批次并返回 Markdown `report_path`，异常也有报告。跨渠道整批报告使用 `search-run start/record/candidates/finish`，结构见 [DATA_MODEL](DATA_MODEL.md)。
 
+Boss/智联/猎聘已有授权搜索标签可用 `jobs search --provider <id> --query <关键词> --url <完整标签URL> --cdp-url <本地浏览器端点> --pages 3 --limit 30` 执行可见卡片采集、翻页、去重和保存；先核对页面实际筛选。猎聘官方授权搜索不传浏览器参数，直接加 `--pages 3`。分页中途失败保留前页结果并标记 partial；没有可用会话或验证未通过仍明确报告，不能作为零岗位。安装和标签要求见 [浏览器采集](../.agents/skills/job-search/references/browser-search.md)。
+
 ```text
 python -m oriward jobs channels
 python -m oriward jobs route --provider official --query "产品经理" --location "上海"

@@ -20,6 +20,7 @@ class LiepinTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         env = patch.dict(os.environ, {"ORIWARD_LIEPIN_CACHE": self.tmp.name, "LIEPIN_USER_TOKEN": "test-secret",
+                                      "ORIWARD_DB": str(Path(self.tmp.name) / "test.sqlite3"),
                                       "ORIWARD_ENABLE_LIEPIN": "1"})
         env.start()
         self.addCleanup(env.stop)
@@ -109,27 +110,42 @@ class LiepinTests(unittest.TestCase):
             opener.return_value.open.return_value = Response(body)
             return liepin.search(query, "苏州", refresh=True)
 
-    def test_unsupported_detail_url_is_skipped_instead_of_voiding_the_page(self):
-        # A social-hire /a/ card used to make normalize() return None, discarding
-        # every valid row on the same page. It is now counted and skipped.
+    def test_official_social_and_regular_urls_are_both_retained(self):
+        # Official search returns both URL families; keep the actual URLs.
         result = self._run("运营实习生", [
             self._card("新媒体运营实习生", "https://www.liepin.com/job/1985339817.shtml?mscid=soai_pc_001"),
             self._card("猎头顾问实习生", "https://www.liepin.com/a/80275619.shtml?mscid=soai_pc_001"),
         ])
         self.assertEqual(result["status"], "SEARCH_VERIFIED")
         self.assertTrue(result["executed"])
-        self.assertEqual(result["returned_count"], 1)
-        self.assertEqual(result["skipped_unsupported_url"], 1)
+        self.assertEqual(result["returned_count"], 2)
+        self.assertNotIn("skipped_unsupported_url", result)
         self.assertEqual(result["records"][0]["url"], "https://www.liepin.com/job/1985339817.shtml")
 
     def test_page_with_only_unsupported_urls_is_not_a_verified_empty_result(self):
         result = self._run("项目管理实习生", [
-            self._card("项目管理实习生", "https://www.liepin.com/a/79529233.shtml"),
+            self._card("项目管理实习生", "https://www.liepin.com/company/79529233.shtml"),
         ])
         self.assertEqual(result["status"], "RESPONSE_REQUIRES_VALIDATION")
         self.assertFalse(result["executed"])
         self.assertEqual(result["imported"], 0)
         self.assertNotIn("records", result)
+
+    def test_pagination_dedupes_and_retains_partial_results(self):
+        card = self._card("产品经理", "https://www.liepin.com/a/123456.shtml")
+        with patch.object(liepin, "build_opener") as opener, patch.object(liepin.time, "sleep"):
+            opener.return_value.open.side_effect = [Response(json.dumps({"code": 0, "data": {"list": [card]}}).encode()),
+                HTTPError(liepin.ENDPOINT, 429, "limited", {}, io.BytesIO())]
+            result = liepin.search_pages("产品", pages=3, limit=10, refresh=True)
+            self.assertEqual([json.loads(c.args[0].data)["page"] for c in opener.return_value.open.call_args_list], [0, 1])
+        self.assertTrue(result["partial"])
+        self.assertEqual(result["stop_reason"], "REQUEST_FAILED")
+        self.assertEqual(len(result["records"]), 1)
+        with patch.object(liepin, "build_opener") as opener, patch.object(liepin.time, "sleep"):
+            opener.return_value.open.side_effect = [Response(json.dumps({"code": 0, "data": {"list": [card]}}).encode()) for _ in range(2)]
+            result = liepin.search_pages("产品", pages=3, limit=10, refresh=True)
+        self.assertEqual(result["stop_reason"], "repeated_page")
+        self.assertEqual(len(result["records"]), 1)
 
     def test_untrusted_host_still_rejects_the_whole_page(self):
         # Skipping is only for URL *shape*; an off-domain link means the payload

@@ -50,19 +50,19 @@ CHANNELS = {
         "name": "猎聘", "domain": "liepin.com", "home": "https://www.liepin.com/", "mode": "official_api_requires_auth",
         "access": "official_api", "supports": ["search"], "apply_channel": True,
         "search_entry": "https://www.liepin.com/zhaopin/", "verified_at": VERIFIED_AT,
-        "note": "可选扩展，默认关闭（需 ORIWARD_ENABLE_LIEPIN=1）；需 90 天 Token；只返回搜索卡片，完整 JD 需人工读取",
+        "note": "官方授权搜索支持 --pages 1..5；也可读取已连接浏览器标签。卡片保留 /job/ 与 /a/ 两类岗位，完整 JD 另行读取",
     },
     "boss": {
         "name": "BOSS直聘", "domain": "zhipin.com", "home": "https://www.zhipin.com/", "mode": "browser_ui",
         "access": "browser", "supports": ["search", "detail"], "apply_channel": True,
         "search_entry": "https://www.zhipin.com/web/geek/job", "verified_at": VERIFIED_AT,
-        "note": "必须走已连接浏览器；本地 HTTP 受 robots 限制。端到端自动搜索尚未验证成功",
+        "note": "--cdp-url + --url 可采集已授权搜索标签的可见卡片并翻页；需先在页面设置筛选。真实登录态验收尚未完成",
     },
     "zhilian": {
         "name": "智联招聘", "domain": "zhaopin.com", "home": "https://www.zhaopin.com/", "mode": "browser_ui",
         "access": "browser", "supports": ["search", "detail"], "apply_channel": True,
         "search_entry": "https://sou.zhaopin.com/", "verified_at": VERIFIED_AT,
-        "note": "站内搜索已实测；未登录时详情/薪资受限，完整 JD 需登录后读取",
+        "note": "--cdp-url + --url 可采集已授权搜索标签的可见卡片并翻页；预览不等于完整 JD。真实登录态验收尚未完成",
     },
     "51job": {
         "name": "前程无忧", "domain": "51job.com", "home": "https://www.51job.com/", "mode": "web_index_or_authorized_import",
@@ -474,9 +474,16 @@ def promote_lead(lead_id, data):
             "next_command": f"jobs card --id {job_id}"}
 
 
-def search_local(query, location="", provider="zhiye", limit=10, refresh=False):
+def search_local(query, location="", provider="zhiye", limit=10, refresh=False, *, pages=1, cdp_url=None, url=None):
     _limit(limit)
     _text(query, "query", 120)
+    if type(pages) is not int or not 1 <= pages <= 5:
+        raise ValidationError("pages must be 1..5")
+    if cdp_url or url:
+        if not cdp_url or not url:
+            raise ValidationError("Browser collection needs both --cdp-url and --url")
+        from .browser_jobs import collect
+        return collect(provider, url, cdp_url, query=query, location=location, limit=limit, pages=pages)
     registry = route_registry()
     if provider == "liepin":
         if not extension_enabled("liepin"):
@@ -487,8 +494,8 @@ def search_local(query, location="", provider="zhiye", limit=10, refresh=False):
                     "module": meta["module"],
                     "enable_with": f"设置环境变量 {meta['env']}=1 后重试",
                     "readme": "docs/LIEPIN_INTEGRATION.md"}
-        from .extras.liepin import search
-        result = search(query, location, limit, refresh)
+        from .extras.liepin import search_pages
+        result = search_pages(query, location, limit, refresh, pages=pages)
         if result.get("status") != "SEARCH_VERIFIED":
             return result
         imported = import_leads(result.pop("records"), skip_older=True)
@@ -512,6 +519,8 @@ def search_local(query, location="", provider="zhiye", limit=10, refresh=False):
                 "route": channel_route(provider, query, location) if provider in CHANNELS else {"provider": provider, "access": meta.get("access", "catalog"), "entry_url": meta.get("search_entry", ""), "executed": False},
                 "plan": search_plan(query, location, [provider])}
 
+    if pages != 1:
+        raise ValidationError("zhiye supports one page; use different queries to expand coverage")
     from .public_search import search_zhiye
     result = search_zhiye(query, location=location, limit=limit, refresh=refresh)
     records = [{**r, "provider": provider, "discovered_at": result["fetched_at"],

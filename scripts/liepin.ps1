@@ -3,6 +3,8 @@ param(
     [switch]$Status,
     [string]$Query = '产品经理',
     [string]$Location = '苏州',
+    [ValidateRange(1,5)][int]$Pages = 1,
+    [ValidateRange(1,100)][int]$Limit = 10,
     [switch]$Refresh,
     [string]$Python = 'python'
 )
@@ -44,7 +46,7 @@ try {
     $env:ORIWARD_ENABLE_LIEPIN = '1'
     $env:PYTHONUTF8 = '1'
     $env:PYTHONDONTWRITEBYTECODE = '1'
-    $searchArgs = @('-m', 'oriward', 'jobs', 'search', '--provider', 'liepin', '--query', $Query, '--location', $Location)
+    $searchArgs = @('-m', 'oriward', 'jobs', 'search', '--provider', 'liepin', '--query', $Query, '--location', $Location, '--pages', $Pages, '--limit', $Limit)
     if ($Refresh) { $searchArgs += '--refresh' }
     & $Python @searchArgs
     $resultCode = $LASTEXITCODE

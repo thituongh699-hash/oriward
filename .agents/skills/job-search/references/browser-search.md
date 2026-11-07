@@ -4,7 +4,7 @@
 
 ## 操作与恢复
 
-1. `jobs search --provider boss|zhilian ...` 或 `jobs browser-plan` 返回 `BROWSER_ACTION_REQUIRED`，CLI 没有自行浏览。
+1. 未提供浏览器连接时，`jobs search --provider boss|zhilian ...` 返回 `BROWSER_ACTION_REQUIRED`。已有授权本地 Chromium 会话可用下方执行器；CLI 不自动启动浏览器或登录。
 2. 读取宿主浏览器工具说明，复用已连接会话；接管用户标签须走工具的 claim 流程。不要复制 cookie、令牌或猜私有接口。
 3. 观察当前页面，用可见搜索框和按钮操作，核对实际城市/筛选条件。新开标签后重新定位结果页；默认城市不等于用户偏好。
 4. 读取小批可见卡片的标题、公司、城市、单岗链接和摘要。可基于已观察 DOM 批量读取可见卡片，不读隐藏状态，也不反复加载整页导航/账号栏。
@@ -33,3 +33,13 @@ node scripts/read_rendered_page.mjs "https://<tenant>.jobs.feishu.cn/intern/?loc
 只读公开页面，不登录、投递或复制凭证。城市/筛选来自用户 URL 或指令。快照中 `availability:listed` 不是雇主确认。记录获取方式 `retrieval_method` 用 `official_ats_api`（页面自身请求）或 `browser_ui`；不要与提升时的 `read_method` 混淆。
 
 搜索授权不包含投递、沟通、收藏、关注或修改账号求职期望。一次故障不等于永久不支持；后续状态以重新观察为准。
+
+## 可选 DOM 采集执行器
+
+安装 `python -m pip install ".[browser]"`。宿主提供已授权本地 CDP 会话；用户在专用浏览器完成登录/验证并设置关键词、城市、筛选后，传入地址栏的完整 URL。只接管这个精确标签，结束时断开，不关闭用户浏览器。
+
+```text
+python -m oriward jobs search --provider boss --query "产品经理" --location "苏州" --url "<已打开的完整搜索URL>" --cdp-url http://127.0.0.1:9331 --pages 3 --limit 30
+```
+
+同样支持 `zhilian` 和 `liepin`。每次最多五页、100 条，只点击可见下一页并读取可见 DOM；平台筛选由当前标签决定，`--query/--location` 是本次请求描述，不会改账号设置，也不声称已应用这些筛选。相同 URL 去重，重复页、无下一页、加载错误和登录/验证时停止；中途失败保留已取卡片，并在报告标出部分结果及逐页状态。卡片只进入线索库，未读完整 JD 不提升为岗位。该执行器需要页面结构匹配；无可见卡片且无明确空结果提示时按读取失败报告。

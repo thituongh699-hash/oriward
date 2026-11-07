@@ -159,6 +159,9 @@ def run(argv=None):
                 if name == "search":
                     x.add_argument("--provider", default="zhiye")
                     x.add_argument("--refresh", action="store_true")
+                    x.add_argument("--pages", type=int, default=1)
+                    x.add_argument("--cdp-url", help="Explicit local browser connection for visible job cards")
+                    x.add_argument("--url", help="Exact open search-tab URL; set filters in that tab first")
                 if name == "browser-plan":
                     x.add_argument("--provider", choices=["boss", "zhilian"], required=True)
                 if name == "shortlist":
@@ -574,7 +577,8 @@ def run(argv=None):
             else: p([{"id": key, **value} for key, value in discovery.route_registry().items()])
         elif args.action == "search":
             p(search_runs.execute_search(args.provider, {"query": args.query, "location": args.location, "limit": args.limit},
-                                         lambda: discovery.search_local(args.query, args.location, args.provider, args.limit, args.refresh)))
+                                         lambda: discovery.search_local(args.query, args.location, args.provider, args.limit, args.refresh,
+                                                                        pages=args.pages, cdp_url=args.cdp_url, url=args.url)))
         elif args.action == "search-plan": p(discovery.search_plan(args.query, args.location, args.providers.split(",") if args.providers else None))
         elif args.action == "browser-plan": p(discovery.browser_plan(args.query, args.location, args.provider, args.limit))
         elif args.action == "browser-record":
