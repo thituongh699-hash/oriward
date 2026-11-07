@@ -1,6 +1,6 @@
 [project]
 name = "oriward-local"
-version = "0.5.0"
+version = "0.5.1"
 description = "Experience translation and resume workbench for career changes and returns to work, powered by your chosen agent"
 readme = "README.md"
 requires-python = ">=3.10"
