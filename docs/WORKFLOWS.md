@@ -60,9 +60,19 @@ python -m oriward pipeline show --job-id 1
 
 `resume market-report --days 30 [--family product|operations|sales_success|people_admin|finance|data_tech]` 只读汇总已保存岗位来源快照，按岗位、雇主和相同 JD 去重，比较相邻时间窗口；至少三个独立雇主的重复要求才标记为候选。新词组只作为待核对市场信号，不能自动证明个人技能或写入长期档案。定时搜岗/提升复盘如实际启用，可把报告作为输入，提示是否调整当前简历或实践计划；CLI 本身不创建提醒。
 
-先读取已有个人资料与完整经历索引，分页直到完成，按批加载细节。`resume tailor-packet --job-id <id>` 返回公司/JD、分析、`translation_focus` 及有界材料；使用 `--offset`/`--budget`，沿 `next_offset` 读取到 `has_more=false`，不能把首包当成全库。没有目标时省略 job ID，生成通用简历上下文，不伪造职位或强迫先选方向。理解岗位目的和 2–4 项交付，再把实际动作接到新岗位要求。展开相关经历、解释跨行业迁移价值、简述其他主要职业阶段，保留教育和时间脉络，尊重明确排除。通过 `resume compose --file <json>` 保存通用完整稿，有目标时加 `--job-id <id>`；输入见 [简历契约](../.agents/skills/resume-builder/references/resume-review.md)。
+先读取已有个人资料与完整经历索引，分页直到完成，按批加载细节。最终简历必须绑定具体岗位：先用 `resume tailor-packet --job-id <id>` 返回公司/JD、分析、`translation_focus` 及有界材料；使用 `--offset`/`--budget`，沿 `next_offset` 读取到 `has_more=false`，不能把首包当成全库。理解岗位目的和 2–4 项交付，再把实际动作接到新岗位要求。展开相关经历、解释跨行业迁移价值、简述其他主要职业阶段，保留教育和时间脉络，尊重明确排除。通过 `resume compose --job-id <id> --file <json>` 或导入后的 `resume rewrite --input-id <id> --job-id <id> --file <json>` 保存岗位定向完整稿；无岗位的底稿只能用于整理经历，不能直接进入评级、模拟面试或投递。输入见 [简历契约](../.agents/skills/resume-builder/references/resume-review.md)。
 
-用户已经讲清的事实直接使用，AI 主动完成专业改写、归纳和真实基础上的包装，交完整稿供用户阅读修改；不要求逐句引文或重复确认，不建立经历评级和审批队列。简介、资料栏目、标题及正文的来源在后台维护，项目链接放在对应经历下。可用 `experience_ids` 合并同阶段来源、`mode:brief` 简述、`exclude_experience_ids` 记录本稿明确排除；未使用的当前可用经历自动简述补回，仍需检查其表达质量。原始经历不被岗位文案覆盖；保留来源版本与历史，不伪造用户确认。缺一个数字时先用已知事实成稿，不阻断整份材料。
+岗位定向简历完成后，用统一入口把诊断、评级、模拟面试和投递准备接起来：
+
+```text
+python -m oriward resume workflow --job-id 1
+python -m oriward resume workflow --job-id 1 --input-id 2
+python -m oriward resume workflow --job-id 1 --resume-id 3
+```
+
+第一步返回岗位分析和定向成稿入口；已有导入稿时先返回带岗位的诊断和完整改写入口；已有定向简历时返回同一岗位、同一版本的体检结果、`review packet`、模拟评级保存入口，以及复用岗位核心交付和 `interview_themes` 的模拟面试保存入口。评级必须针对当前简历版本重新取得 packet；面试记录必须带 `resume_id`，不能拿另一岗位的简历练习结果代替。默认完成评级和实际模拟面试后进入 `application prepare`；用户主动暂缓时保留未完成步骤，所有步骤仍保留本地未投递状态。
+
+用户已经讲清的事实直接使用，AI 主动完成专业改写、归纳和真实基础上的包装，交完整岗位稿供用户阅读修改；不要求逐句引文或重复确认，不建立经历审批队列。简介、资料栏目、标题及正文的来源在后台维护，项目链接放在对应经历下。可用 `experience_ids` 合并同阶段来源、`mode:brief` 简述、`exclude_experience_ids` 记录本稿明确排除；未使用的当前可用经历自动简述补回，仍需检查其表达质量。原始经历不被岗位文案覆盖；保留来源版本与历史，不伪造用户确认。缺一个数字时先用已知事实成稿，不阻断整份材料。成稿回执会给出 `resume workflow --job-id <id> --resume-id <id>`，后续评级与模拟面试沿同一版本继续。
 
 同一岗位自动保留当前 Markdown 和三个历史 Markdown；命名含公司、岗位、城市、岗位编号、版本和日期。超量正文在新稿成功保存后才清理，数据库历史及 claim_map 保留，PDF/DOCX/照片不参与。旧库升级不自动删文件；先 `resume cleanup --all --dry-run` 查看，再 `--apply`。确需清除全部简历正文时，先检查 `resume cleanup --purge --all --dry-run`，再用 `--apply`；该命令仅删除登记在输出根目录内的 Markdown，并保留经历、岗位与版本审计记录，不触及 PDF/DOCX/照片。
 
@@ -171,7 +181,7 @@ python -m oriward pipeline ensure --job-id 1
 
 ## JD 分析、简历与独立评审
 
-用户需要具体岗位评估时，按 `job-analysis` 阅读完整 JD，从招聘目的、支持对象、2–4 项核心交付理解岗位，再区分硬门槛、可学任务和偏好。招聘动机未知时写推断；`role_focus` 保存简历主线与面试主题。前台结论突出是否值得试、卖点、风险和下一步，底层保留原文和真实门槛；不为刷 A 逐项凑 met。`analysis packet` 默认只给经历索引，随后自行选择相关详情。学历/到岗等可引用断言或资料；复合任务逐项覆盖，未知资格不等于失败。
+定向简历流程先按 `job-analysis` 阅读完整 JD，从招聘目的、支持对象、2–4 项核心交付理解岗位，再区分硬门槛、可学任务和偏好。招聘动机未知时写推断；`role_focus` 保存简历主线与面试主题。前台结论突出是否值得试、卖点、风险和下一步，底层保留原文和真实门槛；不为刷 A 逐项凑 met。`analysis packet` 默认只给经历索引，随后自行选择相关详情。学历/到岗等可引用断言或资料；复合任务逐项覆盖，未知资格不等于失败。
 
 ```text
 python -m oriward analysis draft --job-id 1
@@ -191,14 +201,14 @@ python -m oriward resume revise --file data/private/revision-1.json
 python -m oriward resume history --id 2
 ```
 
-正常改写保存为 `factual_status=draft`，可直接生成并本地导出供用户看稿，不调用确认来放行。用户更正直接更新；未知事实不编造。只有用户请求正式模拟评审或再次评估时，才为精确新版本取得 packet：
+正常改写保存为 `factual_status=draft`，可直接生成并本地导出供用户看稿，不调用确认来放行。用户更正直接更新；未知事实不编造。定向稿完成或修改后，默认针对精确新版本取得 packet 并评级，再继续模拟面试：
 
 ```text
 python -m oriward review packet --resume-id 2 --compact
 python -m oriward review save --file data/private/review-2.json
 ```
 
-普通初稿无需完成七阶段评审；正式评审没有新证据时最多两轮；保留剩余风险，转向练习、补证或换目标。新增证据、目标、约束或 JD 变化时重取 packet，并为受影响建议创建新的 decision，历史判断保留。
+先交付完整初稿，再进行七阶段评审和模拟面试；没有新证据时评审最多两轮；保留剩余风险，转向练习、补证或换目标。新增证据、目标、约束或 JD 变化时重取 packet，并为受影响建议创建新的 decision，历史判断保留。
 
 ## 人工投递与时间线
 

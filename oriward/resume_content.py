@@ -359,9 +359,14 @@ def compose(job_id, data):
             if created and path:
                 path.unlink(missing_ok=True)
             raise
+    targeted = s.get_job(job_id).get("kind") != "resume_context"
     return {"id": rid, "path": str(path), "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
             "factual_status": status, "requires_new_review": False,
-            "whole_draft_review_required": False, "review_suggested": True,
+            "whole_draft_review_required": False, "review_suggested": targeted,
+            "workflow": {"mode": "job_targeted" if targeted else "baseline_only",
+                          "command": f"resume workflow --job-id {job_id} --resume-id {rid}" if targeted else None,
+                          "next": ("先选择真实岗位，再进入评级和模拟面试" if not targeted
+                                   else "评级与模拟面试必须绑定本岗位和这个简历版本")},
             "pending_new_facts": [m for m in mapping if m.get("change_type") == "new_facts"],
             "coverage": coverage, "automatically_retained_ids": restored,
             "excluded_experience_ids": sorted(excluded), "required_experience_ids": [],

@@ -131,6 +131,10 @@ def add_object(table, data, required):
                 check_exp_ids(db, item.get("experience_ids", []))
         if table == "interviews":
             one(db, "jobs", int(data["job_id"]))
+            if data.get("resume_id") is not None:
+                resume = one(db, "resumes", int(data["resume_id"]))
+                if resume["job_id"] != int(data["job_id"]):
+                    raise ValidationError("Interview resume and job must match")
             for item in data.get("practice", []):
                 check_exp_ids(db, item.get("evidence_ids", []))
         job_id = int(data["job_id"]) if table in ("job_analyses", "interviews") else None

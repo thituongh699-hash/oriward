@@ -1,6 +1,6 @@
 # Analysis and simulated hiring review
 
-Load this contract when saving requested analysis or conducting an optional formal red/blue review. Neither analysis nor seven-stage assessment is a gate before resume drafting or local export. Stored entities and JSON examples live in [DATA_MODEL](../../../../docs/DATA_MODEL.md).
+Load this contract in the default targeted-resume workflow: analyze the full JD, draft, then rate the exact version and hand off to mock interview. Neither analysis nor seven-stage assessment is a gate before resume drafting or local export. Stored entities and JSON examples live in [DATA_MODEL](../../../../docs/DATA_MODEL.md).
 
 ## Analysis input
 
@@ -39,7 +39,7 @@ A blocker only produces a veto when linked to a known requirement `gap`, or mark
 
 Map every finding to `wording|practice|evidence|retarget`. Wording clarifies existing facts; it cannot cure structural deficits or hard gates. Save with `review save --file <json>` and inspect `review list [--resume-id <id>]`. The CLI rejects supplied grade/status/reasons and validates current sources and the JD fingerprint. No resume hash is required; legacy supplied hashes are ignored.
 
-When formal reassessment is requested after evidence or a resume changes, obtain a fresh packet and conduct a fresh review. Omit an old finding only when the new evidence/version removes it. A revision inherits no grade. Stop after two red/blue rounds without new evidence; retain unresolved gaps and route substantive work to practice, evidence or retargeting.
+When evidence or a resume changes, obtain a fresh packet and conduct a fresh review. Omit an old finding only when the new evidence/version removes it. A revision inherits no grade. Stop after two red/blue rounds without new evidence; retain unresolved gaps and route substantive work to practice, evidence or retargeting.
 
 ## Results
 

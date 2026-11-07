@@ -186,6 +186,11 @@ def run(argv=None):
             x = actions.add_parser("rewrite"); x.add_argument("--input-id", type=int, required=True)
             x.add_argument("--file", required=True); x.add_argument("--job-id", type=int)
             x.add_argument("--base-resume-id", type=int)
+            x = actions.add_parser("workflow", help="岗位定向简历、评级与模拟面试的统一工作流")
+            x.add_argument("--job-id", type=int, required=True)
+            target = x.add_mutually_exclusive_group()
+            target.add_argument("--resume-id", type=int)
+            target.add_argument("--input-id", type=int)
             x = actions.add_parser("market-report"); x.add_argument("--days", type=int, default=30)
             x.add_argument("--family", choices=sorted(resume_workbench.ROLE_PACKS))
             x = actions.add_parser("tailor-packet"); x.add_argument("--job-id", type=int)
@@ -624,6 +629,8 @@ def run(argv=None):
         if args.action == "rewrite":
             p(resume_workbench.rewrite_import(args.input_id, s.json_file(args.file), job_id=args.job_id,
                                               base_resume_id=args.base_resume_id)); return
+        if args.action == "workflow":
+            p(resume_workbench.workflow(job_id=args.job_id, resume_id=args.resume_id, input_id=args.input_id)); return
         if args.action == "market-report":
             p(resume_workbench.market_observations(days=args.days, family=args.family)); return
         if args.action == "tailor-packet":

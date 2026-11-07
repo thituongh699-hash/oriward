@@ -196,6 +196,125 @@ def diagnose(*, input_id=None, resume_id=None, job_id=None):
             "next": "Prepare a complete grounded draft with resume rewrite --input-id and --file, or resume compose/revise for library drafts."}
 
 
+def workflow(*, job_id, resume_id=None, input_id=None):
+    """Assemble the job-bound resume, rating and mock-interview handoff.
+
+    This is an orchestration/read-only packet. Semantic hiring judgments and
+    observed interview answers are still supplied and saved by the Agent;
+    the packet keeps every step attached to the same job and resume version.
+    """
+    if resume_id is not None and input_id is not None:
+        raise s.ValidationError("Select at most one --resume-id or --input-id")
+    job_id = int(job_id)
+    job = s.get_job(job_id)
+    if job.get("kind") == "resume_context":
+        raise s.ValidationError("A workflow requires a real vacancy, not a general resume context")
+
+    base = {
+        "workflow": "job_targeted_resume",
+        "job": {"id": job_id, **job},
+        "stages": [
+            {"id": "job_analysis", "owner": "job-analysis", "purpose": "确认岗位目的、核心交付和门槛"},
+            {"id": "targeted_resume", "owner": "resume-builder", "purpose": "围绕当前岗位交付完整简历"},
+            {"id": "resume_diagnosis", "owner": "resume-builder", "purpose": "定位表达、事实和岗位对齐问题"},
+            {"id": "simulated_rating", "owner": "job-analysis", "purpose": "针对当前简历版本进行可追溯的模拟评级"},
+            {"id": "mock_interview", "owner": "interview-coach", "purpose": "用当前简历和岗位交付开展模拟面试"},
+            {"id": "application", "owner": "application-assistant", "purpose": "绑定精确岗位和简历版本，留在本地待用户提交"},
+        ],
+        "local_unsubmitted": True,
+    }
+    if input_id is not None:
+        input_id = int(input_id)
+        diagnosis = diagnose(input_id=input_id, job_id=job_id)
+        base.update({
+            "stage": "rewrite_pending",
+            "resume_input_id": input_id,
+            "diagnosis": diagnosis,
+            "next": [
+                f"resume rewrite --input-id {input_id} --job-id {job_id} --file <complete-draft.json>",
+                f"resume workflow --job-id {job_id} --resume-id <new-resume-id>",
+            ],
+            "rating": {"status": "waiting_for_targeted_resume", "command": None},
+            "mock_interview": {"status": "waiting_for_targeted_resume", "command": None},
+        })
+        return base
+
+    if resume_id is None:
+        base.update({
+            "stage": "target_required",
+            "next": [
+                f"analysis packet --job-id {job_id} --compact",
+                f"resume tailor-packet --job-id {job_id}",
+                f"resume compose --job-id {job_id} --file <complete-draft.json>",
+            ],
+            "note": "最终简历、评级和模拟面试都必须绑定这个岗位；通用底稿不能直接进入投递。",
+        })
+        return base
+
+    resume_id = int(resume_id)
+    with connect() as db:
+        resume = one(db, "resumes", resume_id)
+        if int(resume["job_id"]) != job_id:
+            raise s.ValidationError("Resume and job must match the same targeted workflow")
+        interview_rows = db.execute("SELECT data FROM interviews WHERE job_id=? ORDER BY id DESC", (job_id,)).fetchall()
+    diagnosis = diagnose(resume_id=resume_id, job_id=job_id)
+    from . import assessment
+    packet = assessment.review_packet(resume_id)
+    prior_reviews = packet.get("prior_reviews", [])
+    latest_analysis = packet.get("latest_analysis")
+    latest_review = next((item for item in prior_reviews
+                          if item["job_sha256"] == packet["job_sha256"]
+                          and item["resume_sha256"] == packet["resume"]["actual_sha256"]
+                          and latest_analysis and item["analysis_id"] == latest_analysis["id"]), None)
+    analysis_current = bool(latest_analysis and latest_analysis["data"]["job_sha256"] == packet["job_sha256"])
+    interview_records = []
+    for row in interview_rows:
+        data = deserialize(row["data"])
+        if str(data.get("resume_id")) == str(resume_id) and data.get("practice"):
+            interview_records.append(data)
+    role_focus = packet.get("role_focus") or {}
+    if not analysis_current:
+        stage = "job_analysis_pending"
+        next_commands = [f"analysis packet --job-id {job_id} --compact",
+                         "analysis save --file <completed-analysis.json>"]
+    elif latest_review is None:
+        stage = "rating_pending"
+        next_commands = [f"review packet --resume-id {resume_id} --compact",
+                         "review save --file <completed-review.json>"]
+    elif not interview_records:
+        stage = "mock_interview_pending"
+        next_commands = ["interview save --file <mock-interview.json>"]
+    else:
+        stage = "feedback_and_application"
+        next_commands = [f"feedback plan --job-id {job_id}",
+                         f"application prepare --job-id {job_id} --resume-id {resume_id} --channel <channel> --apply-url <exact-url>"]
+    base.update({
+        "stage": stage,
+        "resume_id": resume_id,
+        "diagnosis": diagnosis,
+        "rating": {
+            "status": "completed" if latest_review else ("ready" if analysis_current else "waiting_for_job_analysis"),
+            "latest": latest_review,
+            "packet_command": f"review packet --resume-id {resume_id} --compact",
+            "save_command": "review save --file <completed-review.json>",
+        },
+        "mock_interview": {
+            "status": "completed_records_available" if interview_records else "ready",
+            "resume_id": resume_id,
+            "job_id": job_id,
+            "core_deliverables": role_focus.get("core_deliverables", []),
+            "themes": role_focus.get("interview_themes", []),
+            "records": interview_records,
+            "next_action": "围绕岗位核心交付和评级问题，每次问一个问题；保存用户实际回答和反馈。",
+            "save_command": "interview save --file <mock-interview.json>",
+        },
+        "review_packet": packet,
+        "next": next_commands,
+        "resume_command": f"resume workflow --job-id {job_id} --resume-id {resume_id}",
+    })
+    return base
+
+
 def align_import(input_id):
     """Suggest source comparisons without importing document claims as user facts."""
     from .experience_library import list_current, usable_facts
@@ -321,9 +440,14 @@ def rewrite_import(input_id, data, *, job_id=None, base_resume_id=None):
                 path.unlink(missing_ok=True)
             raise
     from .resume_content import cleanup
+    targeted = s.get_job(job_id).get("kind") != "resume_context"
     return {"id": resume_id, "path": str(path), "source_input_id": input_id,
             "covered_line_ids": sorted(covered), "uncovered_line_ids": sorted(known - covered),
             "factual_status": "draft", "local_unsubmitted": True,
+            "workflow": {"mode": "job_targeted" if targeted else "baseline_only",
+                          "command": f"resume workflow --job-id {job_id} --resume-id {resume_id}" if targeted else None,
+                          "next": ("先选择真实岗位，再进入评级和模拟面试" if not targeted
+                                   else "评级与模拟面试必须绑定本岗位和这个简历版本")},
             "retention": cleanup(job_id=job_id, apply=True, rename=False)}
 
 

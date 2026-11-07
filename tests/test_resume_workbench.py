@@ -181,6 +181,61 @@ class ResumeWorkbenchTests(unittest.TestCase):
         self.assertEqual(signal["previous_jobs"], 1)
         self.assertFalse(signal["new_in_window"])
 
+    def test_targeted_workflow_keeps_rating_and_practice_on_exact_version(self):
+        from oriward import assessment, resume_content
+        services.save_profile({"display_name": "虚构候选人"})
+        jobs = sources.import_records([{"source": "fixture", "source_id": str(i),
+            "title": "产品经理", "company": f"虚构公司{i}", "description": "整理用户反馈。",
+            "url": f"https://example.invalid/workflow/{i}"} for i in range(2)])["job_ids"]
+        job_id, other = jobs
+        self.assertEqual(workbench.workflow(job_id=job_id)["stage"], "target_required")
+        imported = self._text_input()
+        self.assertEqual(workbench.workflow(job_id=job_id, input_id=imported["input_id"])["stage"], "rewrite_pending")
+        exp = services.add_object("experiences", {"event": "反馈整理", "actions": ["整理用户反馈。"]}, ["event"])
+        draft = resume_content.compose(job_id, {"reason": "定向稿", "sections": [{"experience_id": exp}]})
+        rid = draft["id"]
+        self.assertIn("resume workflow", draft["workflow"]["command"])
+        self.assertEqual(workbench.workflow(job_id=job_id, resume_id=rid)["rating"]["status"], "waiting_for_job_analysis")
+        analysis = assessment.draft_analysis(job_id)
+        aid = assessment.save_analysis(analysis)
+        report = workbench.workflow(job_id=job_id, resume_id=rid)
+        self.assertEqual(report["rating"]["status"], "ready")
+        review = report["review_packet"]["review_template"]
+        self.assertEqual(review["analysis_id"], aid)
+        review["stages"]["ats"]["requirement_ids"] = [r["id"] for r in analysis["requirements"]]
+        assessment.save_review(review)
+        reviewed = workbench.workflow(job_id=job_id, resume_id=rid)
+        self.assertEqual(reviewed["rating"]["status"], "completed")
+        self.assertEqual(reviewed["stage"], "mock_interview_pending")
+        practice = {"job_id": job_id, "resume_id": rid, "questions": ["你做了什么？"],
+                    "practice": [], "next_actions": []}
+        services.add_object("interviews", practice, ["job_id", "questions", "practice", "next_actions"])
+        self.assertEqual(workbench.workflow(job_id=job_id, resume_id=rid)["mock_interview"]["status"], "ready")
+        practice["practice"] = [{"question": "你做了什么？", "answer": "我整理反馈。", "feedback": "补充方法"}]
+        services.add_object("interviews", practice, ["job_id", "questions", "practice", "next_actions"])
+        self.assertEqual(len(workbench.workflow(job_id=job_id, resume_id=rid)["mock_interview"]["records"]), 1)
+        self.assertEqual(workbench.workflow(job_id=job_id, resume_id=rid)["stage"], "feedback_and_application")
+        with self.assertRaisesRegex(ValueError, "must match"):
+            services.add_object("interviews", {**practice, "job_id": other}, ["job_id"])
+        with self.assertRaisesRegex(ValueError, "must match"):
+            workbench.workflow(job_id=other, resume_id=rid)
+        new = resume_content.compose(job_id, {"reason": "新版本", "sections": [{"experience_id": exp}]})
+        fresh = workbench.workflow(job_id=job_id, resume_id=new["id"])
+        self.assertEqual(fresh["rating"]["status"], "ready")
+        self.assertEqual(fresh["mock_interview"]["records"], [])
+        # A new analysis invalidates the old rating; an updated JD also needs new analysis.
+        assessment.save_analysis(analysis)
+        self.assertEqual(workbench.workflow(job_id=job_id, resume_id=rid)["rating"]["status"], "ready")
+        sources.import_records([{"source": "fixture", "source_id": "0", "title": "产品经理", "company": "虚构公司0",
+            "description": "整理用户反馈。\n补充新要求。", "url": "https://example.invalid/workflow/0"}])
+        self.assertEqual(workbench.workflow(job_id=job_id, resume_id=rid)["rating"]["status"], "waiting_for_job_analysis")
+        general = resume_content.compose(None, {"reason": "底稿", "sections": [{"experience_id": exp}]})
+        self.assertEqual(general["workflow"]["mode"], "baseline_only")
+        with connect() as db:
+            general_job = db.execute("SELECT job_id FROM resumes WHERE id=?", (general["id"],)).fetchone()[0]
+        with self.assertRaisesRegex(ValueError, "real vacancy"):
+            workbench.workflow(job_id=general_job, resume_id=general["id"])
+
 
 if __name__ == "__main__":
     unittest.main()
