@@ -1,5 +1,7 @@
 # 运行工作流
 
+默认用户旅程：**career-discovery 挖掘经历 → career-mapping 解释经验、技能和能力并探索潜在方向 → job-search 结合用户要求搜索并呈现结果 → job-analysis 分析所选 JD → resume-builder 结合目标与补充 JD 制作简历 → interview-coach / document-export / application-assistant**。已有明确任务时可直接进入对应阶段；复用记录，不重复访谈。阶段间传递当前用户要求、方向 ID、岗位来源、分析和简历版本，反馈回流到相关经历与方向。
+
 ## 五模块协作
 
 项目按**经历挖掘、职业规划、简历制作、岗位搜索与投递、个人提升**五个业务模块组织。`python -m oriward context map` 输出统一模块契约；`context brief` 读取当前状态，`context section --name who_am_i|who_could_i_become|where_i_am_now|what_next` 按现有问题章节展开。三层状态分别回答长期的经历/证据/约束、中期的方向/目标/差距/时间预算、短期的岗位/简历/申请/任务/阻塞。它们是同一 Core 的视图，不需复制个人资料或新建并行数据库。
@@ -20,7 +22,7 @@
 
 ## 启动与接续
 
-首次默认深入挖掘经历：从用户的故事、现有简历或授权历史整理职业/教育时间线，再逐段追问本人动作、判断、难点、结果和可迁移能力，每轮只问一个最有价值的问题，边聊边保存。主动建议从用户指定的历史对话恢复经历，可选允许、稍后或拒绝。允许仅限明确指定的导出文件；提取保留用户、模型和工具说话方，不把模型建议当成用户经历：
+首次默认深入挖掘经历：从用户的故事、现有简历或授权的会话历史整理职业/教育、近期项目时间线，再逐段追问，每轮最少问三个有价值的问题，边聊边保存。主动建议从用户历史会话中恢复经历，可选允许、稍后或拒绝。提取保留用户、模型和工具说话方，不把模型建议当成用户经历：
 
 ```text
 python -m oriward intake history-consent --answer allow --scope data/private/chat-export.jsonl
@@ -56,13 +58,19 @@ python -m oriward pipeline show --job-id 1
 
 ## 按岗位定制与保留版本
 
-已有简历先走 `resume import --file <PDF|DOCX|TXT|MD>`，读取 `resume input --id <id>` 的逐行文本及解析警告，对照原件核查页序和遗漏；PDF 需要可选 `[documents]` 依赖，扫描件需先 OCR。`resume align --input-id <id>` 只提供与现有经历库的文本相似候选，不自动合并事实。`resume diagnose --input-id <id> [--job-id <id>]` 或 `--resume-id <id>` 返回问题位置、影响、修改动作和解析限制；它不是录用概率或七阶段招聘评审。Agent 根据原件、已有经历和当前 JD 交完整稿，使用 `resume rewrite --input-id <id> --file <json> [--job-id <id>]` 登记来源行号；后续修改加 `--base-resume-id <id>`。导入材料留在数据库旁的私人目录，简历稿与其来源映射分开，未确认的文件叙述不自动成为长期经历事实。JSON 契约见 [简历契约](../.agents/skills/resume-builder/references/resume-review.md)。
+简历写作先确定目标岗位或方向，读取主 JD，并用相关岗位 JD 补充理解。Agent 先理解岗位目的、2–4 项核心交付、硬门槛和偏好，再读取完整经历索引，按语义关联选择经历详情。选择依据是实际动作、方法、难点、产出及可迁移能力，不以职位名称或文本相似度代替判断。结合方向解释、搜索来源、用户要求和岗位分析，在后台建立“需求 → 经历 ID/版本 → 相关动作和结果 → 写作重点/缺口”的映射，交付完整稿。
+
+已有简历可用 `resume import --file <PDF|DOCX|TXT|MD>` 和 `resume input --id <id>` 提取辅助材料，对照原件核查页序和遗漏；PDF 需要可选 `[documents]` 依赖，扫描件需先 OCR。与经历库及 JD 的语义核对由 Agent 完成。`resume diagnose --input-id <id> [--job-id <id>]` 或 `--resume-id <id>` 只做可选文本检查，不作为写作前置，也不能判断能力、版式或录用可能。导入材料不自动更新经历库；文件来源改写仍可用 `resume rewrite --input-id <id> --file <json> --job-id <id>`，后续加 `--base-resume-id <id>`；经历库组稿优先用 compose。JSON 见 [简历契约](../.agents/skills/resume-builder/references/resume-review.md)。
 
 `resume market-report --days 30 [--family product|operations|sales_success|people_admin|finance|data_tech]` 只读汇总已保存岗位来源快照，按岗位、雇主和相同 JD 去重，比较相邻时间窗口；至少三个独立雇主的重复要求才标记为候选。新词组只作为待核对市场信号，不能自动证明个人技能或写入长期档案。定时搜岗/提升复盘如实际启用，可把报告作为输入，提示是否调整当前简历或实践计划；CLI 本身不创建提醒。
 
-先读取已有个人资料与完整经历索引，分页直到完成，按批加载细节。最终简历必须绑定具体岗位：先用 `resume tailor-packet --job-id <id>` 返回公司/JD、分析、`translation_focus` 及有界材料；使用 `--offset`/`--budget`，沿 `next_offset` 读取到 `has_more=false`，不能把首包当成全库。理解岗位目的和 2–4 项交付，再把实际动作接到新岗位要求。展开相关经历、解释跨行业迁移价值、简述其他主要职业阶段，保留教育和时间脉络，尊重明确排除。通过 `resume compose --job-id <id> --file <json>` 或导入后的 `resume rewrite --input-id <id> --job-id <id> --file <json>` 保存岗位定向完整稿；无岗位的底稿只能用于整理经历，不能直接进入评级、模拟面试或投递。输入见 [简历契约](../.agents/skills/resume-builder/references/resume-review.md)。
+统一使用 `resume tailor-packet --job-id 1 --reference-job-ids 2 3`：岗位 1 是主目标，岗位 2、3 的同类 JD 是补充说明；补充材料可省略。主 JD 决定具体职责和门槛，同类 JD 只帮助理解工作、发现遗漏和组织表达，不把其他公司的特殊要求套给目标岗位。是否相关由 Agent 判断，不强制分类岗位族。用 `--offset`/`--budget` 沿 `next_offset` 读取到 `has_more=false`，再读取所选详情。
 
-岗位定向简历完成后，用统一入口把诊断、评级、模拟面试和投递准备接起来：
+成稿使用 `resume compose --job-id 1 --reference-job-ids 2 3 --file <json>`，仍然绑定岗位 1；目标和补充 JD 都保存来源快照。尚无具体岗位时，用 `--target-title 客户运营 --reference-job-ids 2 3` 提供方向与参考 JD，同样完成分析、选材和完整写作，无须另走岗位族流程。后续出现具体岗位时复用已有材料，按其实际差异调整；真正准备申请才需要绑定实际岗位。没有任何目标或参考 JD 时仅作经历底稿。
+
+STAR-C 用来组织真实素材：S 背景、T 任务、A 本人行动和方法、R 实际结果、C 挑战克服或额外贡献/可复用沉淀。按岗位需要把已知要素压缩成自然要点，不堆五个标签；没有数字时写实际交付，不推断个人 KPI，不把参与改成主导。展开相关经历，简述其他职业阶段，保留教育与真实时间线。先审查岗位价值、事实边界、可面试解释性、栏目层次和阅读密度，再进行文档导出；无固定一页要求。
+
+岗位定向简历完成后，用统一入口把语义复核、评级、模拟面试、按需导出和投递准备接起来：
 
 ```text
 python -m oriward resume workflow --job-id 1
@@ -70,7 +78,7 @@ python -m oriward resume workflow --job-id 1 --input-id 2
 python -m oriward resume workflow --job-id 1 --resume-id 3
 ```
 
-第一步返回岗位分析和定向成稿入口；已有导入稿时先返回带岗位的诊断和完整改写入口；已有定向简历时返回同一岗位、同一版本的体检结果、`review packet`、模拟评级保存入口，以及复用岗位核心交付和 `interview_themes` 的模拟面试保存入口。评级必须针对当前简历版本重新取得 packet；面试记录必须带 `resume_id`，不能拿另一岗位的简历练习结果代替。默认完成评级和实际模拟面试后进入 `application prepare`；用户主动暂缓时保留未完成步骤，所有步骤仍保留本地未投递状态。
+第一步返回岗位分析、经历选择和定向成稿入口；导入稿也先读取 JD 与经历包。已有定向简历时返回当前版本的 `review packet`、评级保存入口及复用核心交付和 `interview_themes` 的面试入口；文本体检以可选命令提供。评级和面试使用对应岗位与简历版本，实际面试回答由用户提供。按需导出并检查页面后准备申请；用户暂缓的步骤保持未完成，不伪造回答或自动投递。
 
 用户已经讲清的事实直接使用，AI 主动完成专业改写、归纳和真实基础上的包装，交完整岗位稿供用户阅读修改；不要求逐句引文或重复确认，不建立经历审批队列。简介、资料栏目、标题及正文的来源在后台维护，项目链接放在对应经历下。可用 `experience_ids` 合并同阶段来源、`mode:brief` 简述、`exclude_experience_ids` 记录本稿明确排除；未使用的当前可用经历自动简述补回，仍需检查其表达质量。原始经历不被岗位文案覆盖；保留来源版本与历史，不伪造用户确认。缺一个数字时先用已知事实成稿，不阻断整份材料。成稿回执会给出 `resume workflow --job-id <id> --resume-id <id>`，后续评级与模拟面试沿同一版本继续。
 
@@ -80,7 +88,7 @@ python -m oriward resume workflow --job-id 1 --resume-id 3
 
 ## 经历盘点
 
-主动从用户讲述和授权历史中发现值得展开的线索，每轮问一个关键问题。历史提取沿 `next_offset` 分页到 `complete=true`，保持 source/query/max-chars 相同；回执保存源哈希、记录编号、时间和连续读取进度。文件变更从 0 重新读取并按事件/来源去重。读取完成不代表语义分析或经历入库完成；恢复中断时检查最后一页与保存回执。宿主聊天工具须有具体聊天范围的授权，CLI 文件授权不意味着能访问宿主全部聊天。没有工具/导出文件时说明限制，从当前故事开始。
+主动从用户讲述和授权历史中发现值得展开的线索。历史提取沿 `next_offset` 分页到 `complete=true`，保持 source/query/max-chars 相同；回执保存源哈希、记录编号、时间和连续读取进度。文件变更从 0 重新读取并按事件/来源去重。读取完成不代表语义分析或经历入库完成；恢复中断时检查最后一页与保存回执。宿主聊天工具须有具体聊天范围的授权，CLI 文件授权不意味着能访问宿主全部聊天。没有工具/导出文件时说明限制，从当前故事开始。
 
 待展开内容使用独立线索记录，输入见 [DATA_MODEL](DATA_MODEL.md)：
 
@@ -92,7 +100,7 @@ python -m oriward intake clue-state --id 2 --state later --note "用户想下次
 python -m oriward intake clues --offset 0 --limit 10
 ```
 
-示例 ID/回执替换为实际值，先完成经历保存才能标记回答已落库。`intake next` 最多推荐一个问题；暂缓/拒绝不自动重开，关联已排除经历不再推荐。当前用户话题优先于排序，已有回答应先消除重复线索。没有待问线索不表示整个经历库已经完整，也不阻止用户先写稿或搜索。
+示例 ID/回执替换为实际值，先完成经历保存才能标记回答已落库。`intake next` 最少推荐三个问题；暂缓/拒绝不自动重开，关联已排除经历不再推荐。当前用户话题优先于排序，已有回答应先消除重复线索。没有待问线索不表示整个经历库已经完整，也不阻止用户先写稿或搜索。
 
 首次以深入经历挖掘为默认：先盘点做过什么，再围绕最有价值的阶段逐步还原本人动作、判断、困难和结果。复用已有材料，不要求证明文件或量化 KPI 才能开始。目标职位/公司、安排和渠道接入问题延后到搜索相关任务；已有紧急 JD 时先处理具体任务。只问当前最有帮助的问题，不为补齐字段逐项盘问；暂缓/拒绝后不反复追问：
 

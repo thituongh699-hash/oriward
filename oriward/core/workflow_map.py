@@ -24,7 +24,7 @@ MODULES = (
      "entry": ["career list", "goal list", "context section --name who_could_i_become"],
      "feeds": ["job_search_application", "resume_creation", "personal_growth"]},
     {"id": "resume_creation", "name": "简历制作", "primary_layer": "short_term",
-     "reads": ["experience_id", "assertion_id", "direction_id", "job_id"],
+     "reads": ["experience_id", "assertion_id", "direction_id", "job_id", "目标 JD 与同类岗位补充 JD", "用户要求与岗位分析"],
      "writes": ["resume_id", "简历版本与来源映射", "岗位评级与模拟面试反馈"],
      "entry": ["resume workflow", "resume tailor-packet", "resume compose", "resume revise"],
      "feeds": ["job_search_application", "personal_growth"]},
@@ -41,7 +41,20 @@ MODULES = (
 )
 
 
+JOURNEY = (
+    {"skill": "career-discovery", "output": "经历骨架、本人动作、结果和待展开线索"},
+    {"skill": "career-mapping", "output": "经验、技能与能力解释，含尚未察觉的方向假设及搜索词"},
+    {"skill": "job-search", "output": "结合用户要求与方向的真实岗位、完整 JD、来源和搜索结果展示"},
+    {"skill": "job-analysis", "output": "所选岗位目的、核心交付、门槛、可迁移证据与差距"},
+    {"skill": "resume-builder", "output": "从目标 JD 与同类补充 JD 出发选择经历，输出 STAR-C 完整简历与来源版本"},
+    {"skill": "interview-coach", "output": "基于对应岗位、简历和真实回答的练习反馈"},
+    {"skill": "document-export", "output": "按需导出指定版本并检查排版"},
+    {"skill": "application-assistant", "output": "绑定实际岗位与简历版本的本地申请材料"},
+)
+
+
 def map_workflows():
     """Return the module boundaries and feedback paths without user data."""
-    return {"layers": LAYERS, "modules": MODULES,
+    return {"layers": LAYERS, "modules": MODULES, "default_journey": JOURNEY,
+            "routing": "默认按旅程接续；显式任务可从相应阶段进入，复用已有记录，缺口只回补相关内容。",
             "note": "五个业务模块共享一个 Core；时间层是状态视图，不是独立数据库。实际保存以各模块 CLI 回执为准。"}

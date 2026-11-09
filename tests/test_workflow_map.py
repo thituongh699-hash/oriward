@@ -17,3 +17,10 @@ class WorkflowMapTests(unittest.TestCase):
         self.assertIn("experience_id", modules["resume_creation"]["reads"])
         self.assertIn("resume_id", modules["job_search_application"]["reads"])
         self.assertIn("experience_discovery", modules["personal_growth"]["feeds"])
+
+    def test_default_journey_places_market_analysis_before_resume(self):
+        result = map_workflows()
+        self.assertEqual([step["skill"] for step in result["default_journey"]], [
+            "career-discovery", "career-mapping", "job-search", "job-analysis",
+            "resume-builder", "interview-coach", "document-export", "application-assistant"])
+        self.assertIn("显式任务", result["routing"])

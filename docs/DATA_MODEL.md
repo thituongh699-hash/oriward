@@ -343,3 +343,5 @@ CLI 拒绝未知字段。信号指向存储实体时须有真实记录；升格�
 - 具体 JSON、字段准入和命令见 [DECISIONS.md](DECISIONS.md)。
 
 通用简历使用 `source_key=oriward:resume-context:general` 的内部上下文关联版本，不是真实职位，不进入岗位列表、归并、流水线或申请。组合输入和呈现覆盖以完整 JSON 保存在 `resume.composition` / `resume.coverage` 审计快照中，用于修改时保留其他段落。`tailor-packet` 只附索引与 `detail_requests`，不自动返回无界经历正文。
+
+写作上下文统一包含可选的主目标岗位、方向名称和补充参考 JD。有主岗位时，简历仍直接关联该岗位；没有主岗位时以 `kind=resume_context`、`is_vacancy=false` 保存方向上下文，不伪造职位。`resume.composition` 的 `_target_snapshot` 保存主目标与参考 JD 的角色、来源和原文，普通修订保留原依据；明确改变目标时重新建立对应上下文。参考 JD 不覆盖主岗位要求。现有 schema 与版本机制保持不变。

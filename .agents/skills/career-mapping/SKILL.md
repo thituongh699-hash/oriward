@@ -1,19 +1,19 @@
 ---
 name: career-mapping
-description: Map experience evidence to adjacent, cross-industry and hybrid career paths, with sourced market checks and explicit blockers. Use for career exploration or pivots, not vacancy claims or resume writing.
+description: Map experience evidence to adjacent, cross-industry and hybrid career paths, with sourced market checks and explicit blockers. Use for career exploration or pivots, not vacancy claims or resume writing.帮助用户发现新的工作机会。
 ---
 
 # Career mapping
 
-Compare a small, revisable set of directions for career changes, return to work or first entry. Recover transferable work from employment, business, study and informal responsibilities. Check actual gates, availability and feasible entry routes; age, a prior title or one rejection does not set a career ceiling.
+This is the default bridge from experience discovery to preference-led job search: identify transferable abilities the user may overlook and explain their value in viable role families. Check actual gates and entry routes; age, prior title or one rejection does not set a career ceiling.
 
-On first use, default to `python -m oriward onboarding status` and a lightweight experience index; target companies, roles and constraints can remain open while exploration proceeds. Reuse saved choices through `onboarding missing`; ask only what matters to the current choice, not every empty field. Save a current topic and next action with `onboarding topic`; switch topics without losing work (the prior branch is paused), and later continue it with `onboarding resume --id <branch-id>`. Channel preference is optional and does not block career mapping or enable a connector.
+On first use, default to `python -m oriward onboarding status` and the full experience index; targets may remain open. Reuse saved choices, ask only what changes the mapping, and save topic/next action with `onboarding topic`. Channel preference is optional and does not enable a connector.
 
-1. Read relevant experiences and constraints. Use `$career-discovery` to recover overlooked actions when helpful; do not require an exhaustive interview.
-2. Map `experience ID -> actual action -> transferable ability -> new-role deliverable -> occupation family`. Label interests and inferences separately.
-3. For adjacent, cross-industry and hybrid options, show supporting IDs, counterevidence, hard gates, feasible entry proof, risks and search terms.
+1. Read the complete experience index and relevant constraints, then inspect details for promising evidence. Use `$career-discovery` to recover overlooked actions when helpful; do not require an exhaustive interview. Reuse stated preferences and ask only for a missing constraint that changes the mapping.
+2. Map `experience ID -> action -> transferable ability -> possible deliverable/direction`; distinguish interest and inference without forcing occupational categories.
+3. For options, show supporting IDs, counterevidence, gates, feasible entry proof, risks and search terms.
 4. Read current public vacancies or official occupation sources as needed; retain exact URLs and checked dates. Without market evidence, keep the direction a hypothesis. Never invent openings, demand, salaries or offer probabilities.
-5. Save reviewed directions using [references/career-contract.md](references/career-contract.md) and `python -m oriward career add --file <private-json>`; inspect `career list`. Hand search terms to `$job-search`.
+5. Save directions using [references/career-contract.md](references/career-contract.md) and `career add`; inspect `career list`. Hand preferences, direction IDs, evidence, constraints and terms to `$job-search`; unselected directions remain hypotheses.
 
 ## Career Twin Core contract
 

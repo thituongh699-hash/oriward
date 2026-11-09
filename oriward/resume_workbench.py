@@ -7,7 +7,6 @@ import re
 import zipfile
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from difflib import SequenceMatcher
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -106,7 +105,7 @@ def import_resume(file):
             raise
     return {"input_id": input_id, "source_name": path.name, "format": path.suffix.lower()[1:],
             "line_count": len(numbered), "warnings": warnings,
-            "next": f"resume diagnose --input-id {input_id}; review the original before rewriting"}
+            "next": f"resume input --id {input_id}; read the target JD, then select relevant experience details before writing"}
 
 
 def input_record(input_id):
@@ -216,21 +215,27 @@ def workflow(*, job_id, resume_id=None, input_id=None):
         "stages": [
             {"id": "job_analysis", "owner": "job-analysis", "purpose": "确认岗位目的、核心交付和门槛"},
             {"id": "targeted_resume", "owner": "resume-builder", "purpose": "围绕当前岗位交付完整简历"},
-            {"id": "resume_diagnosis", "owner": "resume-builder", "purpose": "定位表达、事实和岗位对齐问题"},
+            {"id": "resume_review", "owner": "resume-builder", "purpose": "由 Agent 复核岗位交付、事实边界、STAR-C 表达和栏目布局；文本体检可选"},
             {"id": "simulated_rating", "owner": "job-analysis", "purpose": "针对当前简历版本进行可追溯的模拟评级"},
             {"id": "mock_interview", "owner": "interview-coach", "purpose": "用当前简历和岗位交付开展模拟面试"},
+            {"id": "document_export", "owner": "document-export", "purpose": "按需导出当前版本并检查逐页排版与文本顺序"},
             {"id": "application", "owner": "application-assistant", "purpose": "绑定精确岗位和简历版本，留在本地待用户提交"},
         ],
+        "upstream": ["career-discovery", "career-mapping", "job-search", "job-analysis"],
+        "reasoning_owner": "host_agent",
         "local_unsubmitted": True,
     }
     if input_id is not None:
         input_id = int(input_id)
-        diagnosis = diagnose(input_id=input_id, job_id=job_id)
+        input_record(input_id)
         base.update({
             "stage": "rewrite_pending",
             "resume_input_id": input_id,
-            "diagnosis": diagnosis,
+            "optional_text_check": f"resume diagnose --input-id {input_id} --job-id {job_id}",
             "next": [
+                f"analysis packet --job-id {job_id} --compact",
+                f"resume tailor-packet --job-id {job_id}",
+                f"resume input --id {input_id}",
                 f"resume rewrite --input-id {input_id} --job-id {job_id} --file <complete-draft.json>",
                 f"resume workflow --job-id {job_id} --resume-id <new-resume-id>",
             ],
@@ -257,8 +262,9 @@ def workflow(*, job_id, resume_id=None, input_id=None):
         if int(resume["job_id"]) != job_id:
             raise s.ValidationError("Resume and job must match the same targeted workflow")
         interview_rows = db.execute("SELECT data FROM interviews WHERE job_id=? ORDER BY id DESC", (job_id,)).fetchall()
-    diagnosis = diagnose(resume_id=resume_id, job_id=job_id)
     from . import assessment
+    from .resume_content import composition_for_resume
+    composition = composition_for_resume(resume_id) or {}
     packet = assessment.review_packet(resume_id)
     prior_reviews = packet.get("prior_reviews", [])
     latest_analysis = packet.get("latest_analysis")
@@ -291,7 +297,8 @@ def workflow(*, job_id, resume_id=None, input_id=None):
     base.update({
         "stage": stage,
         "resume_id": resume_id,
-        "diagnosis": diagnosis,
+        "writing_context": composition.get("_target_snapshot"),
+        "optional_text_check": f"resume diagnose --resume-id {resume_id} --job-id {job_id}",
         "rating": {
             "status": "completed" if latest_review else ("ready" if analysis_current else "waiting_for_job_analysis"),
             "latest": latest_review,
@@ -313,37 +320,6 @@ def workflow(*, job_id, resume_id=None, input_id=None):
         "resume_command": f"resume workflow --job-id {job_id} --resume-id {resume_id}",
     })
     return base
-
-
-def align_import(input_id):
-    """Suggest source comparisons without importing document claims as user facts."""
-    from .experience_library import list_current, usable_facts
-
-    imported = input_record(input_id)
-    source_lines = imported["lines"]
-    candidates = []
-    with connect() as db:
-        experiences = list_current(conn=db)
-    for row in experiences:
-        exp = row["data"]
-        if exp.get("needs_review"):
-            continue
-        facts = [exp.get("event", ""), *usable_facts(exp)]
-        best = None
-        for line in source_lines:
-            for fact in facts:
-                if not isinstance(fact, str) or len(fact.strip()) < 6:
-                    continue
-                score = SequenceMatcher(None, line["text"].casefold(), fact.casefold()).ratio()
-                if score >= 0.45 and (best is None or score > best["similarity"]):
-                    best = {"experience_id": row["id"], "source_line_id": line["id"],
-                            "source_quote": line["text"][:120], "library_quote": fact[:120],
-                            "similarity": round(score, 2)}
-        if best:
-            candidates.append(best)
-    return {"input_id": input_id, "candidates": sorted(candidates, key=lambda item: -item["similarity"]),
-            "meaning": "Text similarity is a comparison hint, not evidence of factual agreement or permission to merge.",
-            "experience_library_updated": False}
 
 
 def rewrite_import(input_id, data, *, job_id=None, base_resume_id=None):

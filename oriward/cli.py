@@ -181,7 +181,6 @@ def run(argv=None):
         elif domain == "resume":
             x = actions.add_parser("import"); x.add_argument("--file", required=True)
             x = actions.add_parser("input"); x.add_argument("--id", type=int, required=True)
-            x = actions.add_parser("align"); x.add_argument("--input-id", type=int, required=True)
             x = actions.add_parser("diagnose")
             target = x.add_mutually_exclusive_group(required=True)
             target.add_argument("--input-id", type=int); target.add_argument("--resume-id", type=int)
@@ -196,9 +195,15 @@ def run(argv=None):
             target.add_argument("--input-id", type=int)
             x = actions.add_parser("market-report"); x.add_argument("--days", type=int, default=30)
             x.add_argument("--family", choices=sorted(resume_workbench.ROLE_PACKS))
-            x = actions.add_parser("tailor-packet"); x.add_argument("--job-id", type=int)
+            x = actions.add_parser("tailor-packet")
+            x.add_argument("--job-id", type=int)
+            x.add_argument("--reference-job-ids", type=int, nargs="+")
+            x.add_argument("--target-title")
             x.add_argument("--offset", type=int, default=0); x.add_argument("--budget", type=int, default=6000)
-            x = actions.add_parser("compose"); x.add_argument("--job-id", type=int); x.add_argument("--file", required=True)
+            x = actions.add_parser("compose")
+            x.add_argument("--job-id", type=int)
+            x.add_argument("--reference-job-ids", type=int, nargs="+")
+            x.add_argument("--target-title"); x.add_argument("--file", required=True)
             x = actions.add_parser("cleanup")
             group = x.add_mutually_exclusive_group(required=True)
             group.add_argument("--job-id", type=int); group.add_argument("--all", action="store_true")
@@ -626,8 +631,6 @@ def run(argv=None):
             p(resume_workbench.import_resume(args.file)); return
         if args.action == "input":
             p(resume_workbench.input_record(args.id)); return
-        if args.action == "align":
-            p(resume_workbench.align_import(args.input_id)); return
         if args.action == "diagnose":
             p(resume_workbench.diagnose(input_id=args.input_id, resume_id=args.resume_id, job_id=args.job_id)); return
         if args.action == "rewrite":
@@ -638,9 +641,11 @@ def run(argv=None):
         if args.action == "market-report":
             p(resume_workbench.market_observations(days=args.days, family=args.family)); return
         if args.action == "tailor-packet":
-            p(resume_content.tailor_packet(args.job_id, offset=args.offset, budget=args.budget)); return
+            p(resume_content.tailor_packet(args.job_id, reference_job_ids=args.reference_job_ids, target_title=args.target_title,
+                                           offset=args.offset, budget=args.budget)); return
         if args.action == "compose":
-            p(resume_content.compose(args.job_id, s.json_file(args.file))); return
+            p(resume_content.compose(args.job_id, s.json_file(args.file), reference_job_ids=args.reference_job_ids,
+                                     target_title=args.target_title)); return
         if args.action == "cleanup":
             p(resume_content.cleanup(job_id=args.job_id, apply=args.apply, purge=args.purge)); return
         if args.action == "build":

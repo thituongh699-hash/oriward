@@ -1,5 +1,13 @@
 # 更新日志
 
+## [Unreleased] — 2026-11-09 JD 驱动的简历制作与技能衔接
+
+- 默认旅程调整为经历挖掘、潜在方向探索、岗位搜索及展示、JD 分析、完整简历、面试、导出与申请准备；显式任务可直接进入相关阶段。
+- 删除 `resume align` 命令与字符串相似度实现。Agent 负责 JD 理解、语义选材和写作，`resume diagnose` 降为可选文本检查；工作流不再自动运行它。
+- `resume tailor-packet` / `resume compose` 统一为目标岗位/方向加补充 JD；`--job-id` 可与 `--reference-job-ids` 同用，主 JD 决定要求，同类 JD 补充理解。无具体岗位时可用 `--target-title` 与参考 JD，沿同一流程成稿。保存主次角色和来源快照，修订保留依据。
+- 写作契约明确岗位交付到经历来源的映射、紧凑 STAR-C 表达、个人贡献边界、栏目与阅读顺序检查。参考 [STAR-C 文章](https://blog.csdn.net/SJ_HP/article/details/162490861)，不采用其中推断个人业绩数字和未经验证的工具评分。
+- 经 GitHub API 核对 [JSON Resume](https://github.com/jsonresume/jsonresume.org/tree/master/packages/schema) 的结构化栏目与 [OpenResume](https://github.com/xitanggg/open-resume) 的生成/解析分离思路，沿用内容、保存与导出分离，不引入其依赖或宣称 ATS 通过率。
+
 ## [0.6.0] — 2026-11-07 招聘平台采集执行器与分页
 
 - 调研猎聘官方 CLI、ZhaopinData、job-crawler 和 JobSpy；结论、来源和实测限制合并到中国渠道说明，不捆绑第三方源码。
@@ -46,7 +54,7 @@
 - 新增 `scripts/demo_experience_translation.py`，用两种虚构成人履历演示自述、暂停接续、分批读取、定制/通用简历、用户更正、方向假设、学习计划和真实导出。工程演示不代表真人可用性或就业效果验证。
 - 本地验收：325 项完整单元测试通过、零跳过；Ruff 与文档链接/预算检查通过。两类虚构成人履历执行 56 次实际子进程调用，四份 DOCX/PDF 用 Microsoft Word 渲染并逐页检查；原 Core/招聘两条演示另有 48 次调用通过。独立审查发现的六项问题均修复并复验。未修改私人库；真人试用仍待开展。
 - 适度方案核对：通过 GitHub API 阅读 [JSON Resume schema](https://github.com/jsonresume/jsonresume.org/blob/master/packages/schema/schema.json) 与 [OpenResume types](https://github.com/xitanggg/open-resume/blob/main/src/app/lib/redux/types.ts)，确认二者将履历内容划分为工作、教育等独立结构；本轮沿用内容与模板分离，不引入它们的运行依赖，也不把其项目介绍当作效果证据。
-- 按用户要求维护[优化改造计划书](docs/OPTIMIZATION_PLAN.md)。宣传词「这些事我确实做过，但以前不知道它们值得写，也不知道可以这样表达。」表达期望体验，不冒充用户证言。真实人群试用与市场验证仍待开展。
+- 按用户要求维护当时的优化改造计划书（现已移除）。宣传词「这些事我确实做过，但以前不知道它们值得写，也不知道可以这样表达。」表达期望体验，不冒充用户证言。真实人群试用与市场验证仍待开展。
 - 保留本轮前已有的项目链接归属、模板布局及 `resume cleanup --purge` 改动；清理仍先 dry-run，历史记录和 PDF/DOCX 不随 Markdown 清理删除。
 
 ### 发布整合

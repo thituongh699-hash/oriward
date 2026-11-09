@@ -15,6 +15,13 @@ from oriward.db import connect
 
 
 class ResumeWorkbenchTests(unittest.TestCase):
+    def test_align_command_is_removed(self):
+        result = subprocess.run([sys.executable, "-m", "oriward", "resume", "align", "--help"],
+                                cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("invalid choice", result.stderr)
+        self.assertFalse(hasattr(workbench, "align_import"))
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -66,12 +73,6 @@ class ResumeWorkbenchTests(unittest.TestCase):
         self.assertEqual(workbench.diagnose(resume_id=second["id"])["source"]["type"], "resume")
         with connect() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM experiences").fetchone()[0], 0)
-        self.assertEqual(workbench.align_import(imported["input_id"])["candidates"], [])
-        eid = services.add_object("experiences", {"event": "客户反馈整理",
-            "actions": ["参与了客户反馈整理，并交付需求清单。"]}, ["event"])
-        aligned = workbench.align_import(imported["input_id"])
-        self.assertEqual(aligned["candidates"][0]["experience_id"], eid)
-        self.assertFalse(aligned["experience_library_updated"])
         self._check_export(second["id"])
 
     def _check_export(self, resume_id):
@@ -143,7 +144,6 @@ class ResumeWorkbenchTests(unittest.TestCase):
 
         imported = run("import", "--file", str(source))
         self.assertEqual(run("diagnose", "--input-id", str(imported["input_id"]))["source"]["type"], "import")
-        self.assertEqual(run("align", "--input-id", str(imported["input_id"]))["candidates"], [])
         payload = {"reason": "虚构 CLI 测试", "display_name": "林青", "identity_line_ids": [1],
                    "contact": "fiction@example.invalid", "contact_line_ids": [2],
                    "sections": [{"heading": "工作经历", "paragraphs": [
@@ -188,9 +188,19 @@ class ResumeWorkbenchTests(unittest.TestCase):
             "title": "产品经理", "company": f"虚构公司{i}", "description": "整理用户反馈。",
             "url": f"https://example.invalid/workflow/{i}"} for i in range(2)])["job_ids"]
         job_id, other = jobs
-        self.assertEqual(workbench.workflow(job_id=job_id)["stage"], "target_required")
+        with patch.object(workbench, "diagnose", side_effect=AssertionError("Text lint must be optional")):
+            start = workbench.workflow(job_id=job_id)
+        self.assertEqual(start["stage"], "target_required")
+        self.assertEqual(start["reasoning_owner"], "host_agent")
+        self.assertIn("document_export", [stage["id"] for stage in start["stages"]])
         imported = self._text_input()
-        self.assertEqual(workbench.workflow(job_id=job_id, input_id=imported["input_id"])["stage"], "rewrite_pending")
+        with patch.object(workbench, "diagnose", side_effect=AssertionError("Text lint must be optional")):
+            imported_flow = workbench.workflow(job_id=job_id, input_id=imported["input_id"])
+        self.assertEqual(imported_flow["stage"], "rewrite_pending")
+        self.assertIn("resume tailor-packet", imported_flow["next"][1])
+        self.assertIn("optional_text_check", imported_flow)
+        with self.assertRaisesRegex(services.ValidationError, "not found"):
+            workbench.workflow(job_id=job_id, input_id=99999)
         exp = services.add_object("experiences", {"event": "反馈整理", "actions": ["整理用户反馈。"]}, ["event"])
         draft = resume_content.compose(job_id, {"reason": "定向稿", "sections": [{"experience_id": exp}]})
         rid = draft["id"]

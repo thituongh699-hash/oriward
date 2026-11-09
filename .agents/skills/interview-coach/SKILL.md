@@ -5,21 +5,21 @@ description: Research public company sources, rehearse role-relevant interview q
 
 # Interview coach
 
-Practice real work, business, projects, study and career-transition choices at the depth the role requires. Agree on a manageable pace; feedback describes an answer or task, not personal worth or a permanent ability label.
+Practice role-relevant work, study and transition cases at a manageable pace. Feedback concerns answers/tasks, not personal worth or permanent ability.
 
-1. Continue the default targeted-resume workflow using `resume workflow --job-id <id> --resume-id <id>`. Read that job, exact resume/version, analysis `role_focus`, rating and open feedback plan. Reuse its mission, 2–4 core deliverables, interview themes and unresolved questions; expand only relevant current experience details. Include both IDs in every saved practice record.
-2. Research public company sources as needed; actually read them and preserve URL, date, fact and separate inference. Do not upload personal data or imply employer-system access.
-3. Derive questions from the core work and related cases for HR, hiring-manager, technical, pressure, background or competition practice. Connect a real action to its intended deliverable, support recipient and tradeoffs; do not repeat a complete experience interview. Keep hiring-motive inferences separate from sourced facts. Pressure stays job relevant and respectful; background checks use supplied evidence, and unsourced competition benchmarks remain hypothetical. Unknown eligibility is a question, not a proven failure. ATS assessment belongs to `$job-analysis`.
+1. For a vacancy, use `resume workflow --job-id <id> --resume-id <id>` when available; reuse its mission, deliverables, themes and open questions. Save job/resume IDs. Practice can proceed directly on explicit request without a prior rating or unrelated prerequisites.
+2. Read needed public company sources; retain URL/date and separate facts from inference. Do not upload personal data or imply employer access.
+3. Derive HR, manager, technical or pressure questions from role work. Connect real actions to deliverables and tradeoffs without repeating discovery. Keep motives/unsourced competition hypothetical; pressure respectful. Unknown eligibility is a question. ATS review belongs to `$job-analysis`.
 4. Ask one question at a time; probe ownership, evidence, tradeoffs, failure and reflection. Save the user's actual answer, never an invented polished response.
 5. Link feedback to `wording|practice|evidence|retarget` actions. Load [references/interview-contract.md](references/interview-contract.md) when saving via `python -m oriward interview save --file <path>` or preparing feedback records.
 6. Use `kind:mock` for practice, `actual` only for genuine employer feedback bound to the submitted application/resume, and `hypothesis` for unverified causal explanations.
-7. Route new achievements to `$career-discovery`, capability work to `$learning-planner`, and resume edits to `$resume-builder`. Revisions need a fresh rating for the new version. Keep deferred practice pending; a question plan alone is not a completed mock interview.
+7. Route new achievements, capability work and resume edits to `$career-discovery`, `$learning-planner` and `$resume-builder`. Revisions need fresh review. Deferred practice stays pending; a question plan is not a mock.
 
 Report observed answer evidence, sources/dates, hypotheses, prioritized actions and saved IDs; never promise outcomes.
 
 ## Career Twin Core contract
 
-- Read pipeline/application events; without submitted-application evidence, employer feedback cannot be recorded as actual.
+- Read pipeline/application events; only submitted-application evidence supports `actual` employer feedback.
 - Save user reactions with `signal add`; capability revisions use `belief propose`, with confirmation only on the user's instruction. One rejection alone proves no ability deficit.
 - Propose the next practice action with `source_type:interview`; set a real interview deadline only when known.
-- Use the [decision contract](../../../docs/DECISIONS.md) for recommended next steps or reassessment. Shared rules are in `AGENTS.md`.
+- Use [DECISIONS](../../../docs/DECISIONS.md) for recommendations; shared rules are in `AGENTS.md`.

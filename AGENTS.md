@@ -1,12 +1,12 @@
 # Oriward — Agent instructions
 
-Help people with rich histories return to work or change direction: recover experiences, translate abilities, explain value and plan practical next steps. Employment, business, education, informal work and caring count. Never invent seniority or equate hiring outcomes with personal worth.
+Help people return to work or change direction: recover experiences, translate abilities, explain value and plan next steps. Work, business, education, informal responsibilities and caring count; never invent seniority or judge worth by hiring.
 
 ## Execution and loading
 
-The user's Agent reasons; Oriward is a deterministic Python CLI + SQLite store, with no model service or background worker. Change state through CLI; never edit rows directly or claim persistence without a successful receipt.
+The host Agent interprets JDs, selects and writes; Oriward stores materials and versions in Python/SQLite, without a model service. Change state through CLI; never edit rows or claim persistence without a receipt.
 
-First use: check Python 3.10+/SQLite; run `scripts/doctor.py`, `-m oriward init`, `-m oriward twin status`, `onboarding missing`. Default to deep discovery; ask one question via `intake next`, save answers and clues. Direct search/application requires an existing resume and explicit request; offer library discovery too. Save clear self-reports. Defer targets/channels. Resume via `context brief`, current topic and `experience index`. Use isolated test databases. See [WORKFLOWS](docs/WORKFLOWS.md).
+First use: check Python/SQLite; run `scripts/doctor.py`, `-m oriward init`, `-m oriward twin status`, `onboarding missing`. Default discovery: ask via `intake next`, save answers. Direct search/application needs an existing resume and explicit request. Defer targets/channels; resume via `context brief` and experience index. Test on isolated databases. See [WORKFLOWS](docs/WORKFLOWS.md).
 
 Read `.agents/skills/<name>/SKILL.md` if not discovered. Load only task-relevant references:
 
@@ -41,12 +41,13 @@ Use [WORKFLOWS](docs/WORKFLOWS.md) for commands, [DATA_MODEL](docs/DATA_MODEL.md
 - No autonomous submissions, messages, logins, purchases, invitations, irreversible clicks or CAPTCHA bypass. Local drafts remain unsubmitted. `application record --status SUBMITTED` records an actual user-confirmed submission; never supply `--human-confirmed` just to pass. Accepted decisions do not authorize external actions.
 - Keep source URLs/dates, snippets/full JDs and import/source times distinct. Failure is not zero results; listed is not proof of open applications. Routes: [CHINA_JOB_SOURCES](docs/CHINA_JOB_SOURCES.md).
 - Extensions in `oriward/extras/` default off; enable `ORIWARD_ENABLE_LIEPIN=1` or similar only on explicit instruction. Disabled/auth-required is not zero results. Respect platform terms and access controls.
-- Default resume flow: full JD → complete targeted draft → version-bound rating → mock interview → feedback/revision → application preparation. Use `resume workflow`; keep user-deferred steps pending, never invent answers. General drafts are baselines. Reviews assess job-related evidence only. A–D are simulated labels, not employer verdicts or probabilities. Structural gaps need evidence, practice or retargeting. Keep practice respectful and job relevant.
+- Default: career-discovery → career-mapping → job-search → job-analysis → resume-builder → interview-coach → document-export → application-assistant. Reuse context; explicit tasks may enter any stage.
+- One writing flow: target JD plus optional related JDs → deliverables → full experience index → selected details → factual STAR-C → full draft. Primary JD controls; references add context. Direction drafts use references. Agent judges relevance; lint is optional. `resume workflow` binds review/practice to a vacancy. Respect deferrals; A–D are simulated labels.
 - Analyze the role purpose and 2–4 core deliverables; separate motive hypotheses, gates and learnable/preferred tasks. Reuse this focus downstream. Search reports record actual channels/failures, coverage and sourced dates; planned apply dates are not employer deadlines.
 
 ## Repository maintenance
 
-SQLite defaults to `data/private/oriward.sqlite3` (override: `ORIWARD_DB`); schema v7 backs up upgrades. Use isolated fictional tests. Core stays standard-library-only; document dependencies remain optional. Read the full experience index, then relevant details. Build the complete education/career skeleton; expand relevant work, translate transferable work and briefly retain other stages. Honour exclusions, gaps and dates. Compose naturally with source mapping; no approved_for_resume gate. Imported resumes are source documents, not long-term facts; `resume align` is only a comparison hint. Respect personal templates without imposing one layout globally. Resume hashes never gate operations. Keep current + three historical Markdown files per job; preserve private state.
+SQLite defaults to `data/private/oriward.sqlite3` (override: `ORIWARD_DB`); schema v7 backs up upgrades. Use isolated fictional tests. Core stays standard-library-only; document dependencies remain optional. Read the full experience index, then relevant details. Build the complete education/career skeleton; expand relevant work, translate transferable work and briefly retain other stages. Honour exclusions, gaps and dates. Compose naturally with source mapping; no approved_for_resume gate. Imported resumes are source documents, not long-term facts. `resume align` has been removed; semantic evidence selection belongs to the host Agent. Respect personal templates without imposing one layout globally. Resume hashes never gate operations. Keep current + three historical Markdown files per job; preserve private state.
 
 Legacy settings remain readable; new variables take precedence.
 

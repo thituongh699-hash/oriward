@@ -44,15 +44,90 @@ def artifact_path(db, resume_id):
                                     f"{_slug(data.get('location', ''))}_job{row['job_id']}_v{version}_{day}.md")
 
 
-def tailor_packet(job_id=None, *, offset=0, budget=6000):
+def _build_target(job_id=None, reference_job_ids=None, *, title=None):
+    """Build one target from an optional primary JD and supplementary references."""
+    from .assessment import _job_sha256, _latest_structured_analysis
+    if reference_job_ids is None:
+        reference_job_ids = []
+    if not isinstance(reference_job_ids, (list, tuple)):
+        raise s.ValidationError("reference_job_ids must be a list of saved job IDs")
+    try:
+        references = list(dict.fromkeys(int(value) for value in reference_job_ids))
+        primary_id = int(job_id) if job_id is not None else None
+    except (TypeError, ValueError) as exc:
+        raise s.ValidationError("target IDs must be saved job IDs") from exc
+    references = [value for value in references if value != primary_id]
+    if primary_id is not None and not references:
+        primary = s.get_job(primary_id)
+        if primary.get("kind") == "resume_context":
+            if title is not None:
+                raise s.ValidationError("target_title requires a vacancy or reference job")
+            return {"type": "baseline", "title": "通用简历", "primary_job_id": None,
+                    "reference_job_ids": [], "jobs": []}, {"primary": None, "references": []}
+    ids = ([primary_id] if primary_id is not None else []) + references
+    if not ids:
+        if title is not None:
+            raise s.ValidationError("target_title requires a primary or reference job")
+        return {"type": "baseline", "title": "通用简历", "primary_job_id": None,
+                "reference_job_ids": [], "jobs": []}, {"primary": None, "references": []}
+    if primary_id is None and not (str(title or "").strip()):
+        raise s.ValidationError("target_title is required when no primary job is selected")
+    jobs_by_id = {}
+    analyses = []
+    with connect() as db:
+        for selected_id in ids:
+            row = db.execute("SELECT * FROM jobs WHERE id=?", (selected_id,)).fetchone()
+            if row is None:
+                raise s.ValidationError(f"Saved job #{selected_id} not found")
+            job = deserialize(row["data"])
+            if job.get("kind") == "resume_context" or not str(job.get("description", "")).strip():
+                raise s.ValidationError(f"Job #{selected_id} must be a saved vacancy with a nonempty JD")
+            jobs_by_id[selected_id] = {"id": selected_id, **job}
+            analysis = _latest_structured_analysis(db, selected_id)
+            if analysis:
+                analysis["freshness"] = "current" if analysis["data"].get("job_sha256") == _job_sha256(job) else "stale"
+                analyses.append({"job_id": selected_id, **analysis})
+    snapshot_jobs = []
+    for selected_id in ids:
+        job = jobs_by_id[selected_id]
+        snapshot_jobs.append({"id": selected_id, "role": "primary" if selected_id == primary_id else "reference",
+                              **{key: job.get(key, "") for key in (
+            "id", "title", "company", "location", "description", "url", "source",
+            "published_at", "listed_at", "retrieved_at", "valid_through")}})
+    title = str(title).strip() if title is not None else jobs_by_id[primary_id]["title"]
+    if not title:
+        raise s.ValidationError("target_title must be nonempty")
+    target_type = "job" if primary_id is not None else "direction"
+    snapshot = {"type": target_type, "title": title, "primary_job_id": primary_id,
+                "reference_job_ids": references, "jobs": snapshot_jobs}
+    analyses_by_id = {item["job_id"]: item for item in analyses}
+    return snapshot, {"primary": analyses_by_id.get(primary_id),
+                      "references": [analyses_by_id.get(reference_id) for reference_id in references]}
+
+
+def _single_target(job_id):
+    if job_id is None or s.get_job(job_id).get("kind") == "resume_context":
+        return {"type": "baseline", "title": "通用简历", "primary_job_id": None,
+                "reference_job_ids": [], "jobs": []}
+    return _build_target(job_id)[0]
+
+
+def tailor_packet(job_id=None, *, reference_job_ids=None, target_title=None, offset=0, budget=6000):
     """One bounded page, with an explicit continuation; no approval prerequisite."""
     from .experience_library import index
-    from .assessment import analysis_packet
+    target, target_analyses = _build_target(job_id, reference_job_ids, title=target_title)
+    job = s.get_job(job_id) if job_id is not None else None
+    if job_id is not None and target["type"] == "job":
+        from .assessment import analysis_packet
+        analysis = {"primary": analysis_packet(job_id), **target_analyses}
+    else:
+        analysis = target_analyses
     page = index(budget=budget, offset=offset)
     ids = [item["id"] for item in page["items"]]
-    return {"job_id": job_id, "job": s.get_job(job_id) if job_id is not None else None,
+    return {"job_id": job_id, "reference_job_ids": target["reference_job_ids"], "target": target,
+            "job": job,
             "profile": s.get_profile(),
-            "analysis": analysis_packet(job_id) if job_id is not None else None,
+            "analysis": analysis,
             "experience_index": page,
             "experience_details": [],
             "detail_requests": {"ids": ids, "sections": ["event", "time_period", "actions", "outcomes"],
@@ -60,9 +135,12 @@ def tailor_packet(job_id=None, *, offset=0, budget=6000):
             "required_experience_ids": [],  # deprecated: experience approval is not a coverage rule
             "next_offset": page["next_offset"],
             "has_more": page["next_offset"] < page["total_count"],
-            "next": "Read all index pages, then relevant details. Recover the career timeline; translate actual actions "
-                    "into the role's 2-4 deliverables. Expand relevant work, briefly retain other history. "
-                    "Compose a complete draft directly; user self-report needs no additional approval.",
+            "next": ("Read the primary JD first when present; references are supplementary context, not extra gates. "
+                     "With a direction target, use its references to understand the intended work. Then read all "
+                     "experience index pages, request selective details, map requirements to evidence, build compact "
+                     "STAR-C examples, compose a complete resume, and check semantic fit and readability. Optional "
+                     "text lint is separate. Do not rank or keyword-score JDs automatically. "
+                     "Compose a complete draft directly; user self-report needs no additional approval."),
             "translation_focus": ["What did the person actually do?", "Which working ability does that demonstrate?",
                                   "Which target task uses that ability?", "What small practice could bridge the remaining gap?"],
             "contract": {"sections": [{"experience_id": 1, "category": "工作经历", "mode": "expanded",
@@ -89,6 +167,17 @@ def _general_job(db):
     return db.execute("INSERT INTO jobs(source_key,title,company,url,data,created_at) VALUES (?,?,?,?,?,?)",
                       (key, "通用简历", "", "", serialize({"kind": "resume_context", "is_vacancy": False,
                        "title": "通用简历", "company": "", "description": "", "location": ""}), now())).lastrowid
+
+
+def _direction_job(db, title, reference_job_ids):
+    key = "oriward:resume-context:direction:" + serialize({"title": title, "reference_job_ids": sorted(reference_job_ids)})
+    row = db.execute("SELECT id FROM jobs WHERE source_key=?", (key,)).fetchone()
+    if row:
+        return row["id"]
+    data = {"kind": "resume_context", "is_vacancy": False, "title": title, "company": "",
+            "description": "", "location": "", "reference_job_ids": sorted(reference_job_ids)}
+    return db.execute("INSERT INTO jobs(source_key,title,company,url,data,created_at) VALUES (?,?,?,?,?,?)",
+                      (key, title, "", "", serialize(data), now())).lastrowid
 
 
 def _mapped(db, claim, ids):
@@ -170,13 +259,27 @@ def _profile_defaults(profile):
     return {key: list(dict.fromkeys(values)) for key, values in groups.items() if values}
 
 
-def compose(job_id, data):
+def compose(job_id, data, *, reference_job_ids=None, target_title=None):
     from copy import deepcopy
     from .experience_library import validate_for_resume, record_resume_sources, list_current, usable_facts
     from .feedback import ensure_schema, _id
     s.validate_dict(data, ["reason", "sections"])
     if not isinstance(data["sections"], list):
         raise s.ValidationError("sections must be an array")
+    saved_snapshot = data.get("_target_snapshot")
+    if target_title is not None or reference_job_ids is not None:
+        target_snapshot, _ = _build_target(job_id, reference_job_ids, title=target_title)
+    elif isinstance(saved_snapshot, dict) and saved_snapshot.get("type") in {"job", "direction"}:
+        saved_primary = saved_snapshot.get("primary_job_id")
+        context_target = job_id is not None and _single_target(job_id)["type"] == "baseline"
+        if (saved_primary is not None and int(job_id or 0) == saved_primary) or (saved_primary is None and context_target):
+            # Feedback revisions keep the exact JD inputs used by the base version.
+            target_snapshot = saved_snapshot
+        else:
+            target_snapshot, _ = _build_target(
+                job_id, saved_snapshot.get("reference_job_ids", []))
+    else:
+        target_snapshot, _ = _build_target(job_id)
     profile = s.get_profile()
     person = safe_text(profile.get("display_name"), "current display_name")
     requested = deepcopy(data)
@@ -187,7 +290,9 @@ def compose(job_id, data):
     path, created = None, False
     with connect() as db:
         ensure_schema(db)
-        if job_id is None:
+        if target_snapshot["type"] == "direction":
+            job_id = _direction_job(db, target_snapshot["title"], target_snapshot["reference_job_ids"])
+        elif job_id is None:
             job_id = _general_job(db)
         one(db, "jobs", job_id)
         available = {row["id"]: validate_for_resume(db, row["id"]) for row in list_current(conn=db)
@@ -350,6 +455,7 @@ def compose(job_id, data):
             # Persist resolved coverage and composition separately from candidate-facing prose.
             requested["sections"] = section_data
             requested["_profile_snapshot"] = profile
+            requested["_target_snapshot"] = target_snapshot
             # audit() truncates human log messages to 200 chars; these are full version snapshots.
             for kind, payload in (("resume.composition", requested), ("resume.coverage", coverage)):
                 db.execute("INSERT INTO audit_events(kind,resource,resource_id,detail,created_at) VALUES (?,?,?,?,?)",
@@ -359,14 +465,17 @@ def compose(job_id, data):
             if created and path:
                 path.unlink(missing_ok=True)
             raise
-    targeted = s.get_job(job_id).get("kind") != "resume_context"
+    targeted = target_snapshot["type"] == "job"
     return {"id": rid, "path": str(path), "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
             "factual_status": status, "requires_new_review": False,
             "whole_draft_review_required": False, "review_suggested": targeted,
-            "workflow": {"mode": "job_targeted" if targeted else "baseline_only",
+            "workflow": {"mode": ("job_targeted" if targeted else
+                                    "direction_targeted" if target_snapshot["type"] == "direction" else "baseline_only"),
                           "command": f"resume workflow --job-id {job_id} --resume-id {rid}" if targeted else None,
-                          "next": ("先选择真实岗位，再进入评级和模拟面试" if not targeted
-                                   else "评级与模拟面试必须绑定本岗位和这个简历版本")},
+                          "next": ("当前是方向性草稿；选定主岗位后可沿用该经历组织，为主岗位补充专版"
+                                   if target_snapshot["type"] == "direction" else
+                                   "评级与模拟面试必须绑定本岗位和这个简历版本" if targeted else
+                                   "先选择真实岗位，再进入评级和模拟面试")},
             "pending_new_facts": [m for m in mapping if m.get("change_type") == "new_facts"],
             "coverage": coverage, "automatically_retained_ids": restored,
             "excluded_experience_ids": sorted(excluded), "required_experience_ids": [],
