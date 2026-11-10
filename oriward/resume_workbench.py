@@ -294,10 +294,19 @@ def workflow(*, job_id, resume_id=None, input_id=None):
         stage = "feedback_and_application"
         next_commands = [f"feedback plan --job-id {job_id}",
                          f"application prepare --job-id {job_id} --resume-id {resume_id} --channel <channel> --apply-url <exact-url>"]
+    from .resume_editorial import packet as editorial_packet
+    editorial = editorial_packet(resume_id).get("latest_editorial_review")
+    editorial_ready = bool(editorial and editorial["current"] and editorial["verdict"] == "ready")
+    if not editorial_ready:
+        next_commands = [f"resume editorial-packet --resume-id {resume_id}",
+                         "resume editorial-review --file <actual-editorial-review.json>", *next_commands]
     base.update({
         "stage": stage,
         "resume_id": resume_id,
         "writing_context": composition.get("_target_snapshot"),
+        "editorial": {"status": "ready" if editorial_ready else "readback_required",
+                      "latest": editorial, "is_hiring_assessment": False,
+                      "packet_command": f"resume editorial-packet --resume-id {resume_id}"},
         "optional_text_check": f"resume diagnose --resume-id {resume_id} --job-id {job_id}",
         "rating": {
             "status": "completed" if latest_review else ("ready" if analysis_current else "waiting_for_job_analysis"),
@@ -420,6 +429,8 @@ def rewrite_import(input_id, data, *, job_id=None, base_resume_id=None):
     return {"id": resume_id, "path": str(path), "source_input_id": input_id,
             "covered_line_ids": sorted(covered), "uncovered_line_ids": sorted(known - covered),
             "factual_status": "draft", "local_unsubmitted": True,
+            "editorial_review_required": True,
+            "next": f"resume editorial-packet --resume-id {resume_id}",
             "workflow": {"mode": "job_targeted" if targeted else "baseline_only",
                           "command": f"resume workflow --job-id {job_id} --resume-id {resume_id}" if targeted else None,
                           "next": ("先选择真实岗位，再进入评级和模拟面试" if not targeted

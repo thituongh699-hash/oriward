@@ -371,6 +371,17 @@ def _write_docx(document, stream, font_path, font_family, template, photo=None):
         style = doc.styles[style_name]
         style.font.name, style.font.color.rgb = font_name, RGBColor(0, 0, 0)
         style._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
+        # Chinese font metrics and Word's document grid can inflate multiple
+        # line spacing. Use the same explicit leading as the PDF layout.
+        leading = {"Title": 24, "Subtitle": 13, "Heading 1": 15, "Heading 2": 13}.get(
+            style_name, layout["leading"])
+        style.paragraph_format.line_spacing = Pt(leading)
+        properties = style._element.get_or_add_pPr()
+        snap = properties.find(qn("w:snapToGrid"))
+        if snap is None:
+            snap = OxmlElement("w:snapToGrid")
+            properties.append(snap)
+        snap.set(qn("w:val"), "0")
     title_style = doc.styles["Title"]
     title_style.paragraph_format.space_before = Pt(0)
     title_style.paragraph_format.space_after = Pt(4)
@@ -379,7 +390,6 @@ def _write_docx(document, stream, font_path, font_family, template, photo=None):
     if title_borders is not None:
         title_properties.remove(title_borders)
     doc.styles["Normal"].font.size = Pt(layout["body"])
-    doc.styles["Normal"].paragraph_format.line_spacing = 1.12
     doc.styles["Normal"].paragraph_format.space_after = Pt(1)
     doc.styles["Title"].font.size = Pt(layout["title"])
     doc.styles["Title"].font.bold = True
@@ -452,6 +462,9 @@ def _write_docx(document, stream, font_path, font_family, template, photo=None):
                 subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
             photo_para = header.cell(0, 2).paragraphs[0]
             photo_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            # Inline pictures need an automatically expanding line box; exact
+            # text leading would crop the portrait to a narrow strip in Word.
+            photo_para.paragraph_format.line_spacing = 1.0
             photo_para.add_run().add_picture(str(photo), width=Cm(2.6))
             tbl_pr = header._tbl.tblPr
             borders = OxmlElement("w:tblBorders")
@@ -710,8 +723,25 @@ def probe():
     return {"status": "OK", "dependencies": availability, "network": False, "writes": False}
 
 
+def _resolve_template(template, resume_id):
+    if template is not None:
+        return template, "explicit"
+    if resume_id is None:
+        return "modern-cn", "default.structured"
+    from oriward import resume_content, services
+    composition = resume_content.composition_for_resume(int(resume_id)) or {}
+    if composition.get("template"):
+        return composition["template"], "resume.composition"
+    preferences = services.get_profile().get("resume_preferences") or {}
+    if not isinstance(preferences, dict):
+        preferences = {}
+    if preferences.get("template"):
+        return preferences["template"], "profile.resume_preferences.template"
+    return "reference", "default.resume"
+
+
 def export_document(*, document=None, resume_id=None, output_dir, formats=("docx", "pdf"), font=None,
-                    template="modern-cn", photo=None, renderer="auto", page_policy="a4-1-3"):
+                    template=None, photo=None, renderer="auto", page_policy="a4-1-3"):
     """Export one normalised document into a brand-new directory and return its manifest."""
     if (document is None) == (resume_id is None):
         _error("INVALID_ARGUMENTS", "provide exactly one of document or resume_id")
@@ -720,11 +750,9 @@ def export_document(*, document=None, resume_id=None, output_dir, formats=("docx
     formats = tuple(formats)
     if not formats or set(formats) - {"docx", "pdf"} or len(set(formats)) != len(formats):
         _error("INVALID_ARGUMENTS", "formats must be a unique subset of docx,pdf")
-    if template not in TEMPLATES or renderer not in {"auto", "reportlab", "libreoffice", "word"} or page_policy not in {"a4-1-2", "a4-1", "a4-1-3"}:
+    if (template is not None and template not in TEMPLATES) or renderer not in {"auto", "reportlab", "libreoffice", "word"} or page_policy not in {"a4-1-2", "a4-1", "a4-1-3"}:
         _error("INVALID_ARGUMENTS", "invalid template, renderer or page policy")
     photo_path = Path(photo).expanduser() if photo else None
-    if photo_path and (template not in {"modern-cn", "reference"} or not photo_path.is_file()):
-        _error("INVALID_PHOTO", "photo requires a photo-capable template and an existing image file")
     candidates = dict(_renderer_candidates())
     native_renderer = None
     if renderer in {"word", "libreoffice"}:
@@ -744,6 +772,11 @@ def export_document(*, document=None, resume_id=None, output_dir, formats=("docx
                    "a resume must be exported from its registered resume ID; structured input is for "
                    "plans, notes and reports")
         source = {"input": "structured"}
+    template, template_source = _resolve_template(template, resume_id)
+    if template not in TEMPLATES:
+        _error("INVALID_ARGUMENTS", f"unsupported saved template from {template_source}: {template}")
+    if photo_path and (template not in {"modern-cn", "reference"} or not photo_path.is_file()):
+        _error("INVALID_PHOTO", "photo requires a photo-capable template and an existing image file")
     if resume_id is not None:
         _validate_resume_content(normalized)
     output = Path(output_dir).expanduser()
@@ -811,11 +844,18 @@ def export_document(*, document=None, resume_id=None, output_dir, formats=("docx
         manifest = {"status": "GENERATED_PENDING_VISUAL_REVIEW",
                     "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     "source": source, "formats": list(formats), "template": template,
+                    "template_source": template_source,
                     "renderer": renderer_details if "pdf" in formats else {"docx": "python-docx"},
                     "page_policy": page_policy, "photo_included": bool(photo_path),
                     "font": {"family": family, "pdf_embedded": "pdf" in formats, "docx_embedded": False},
                     "files": {path.name: {"bytes": path.stat().st_size} for path in created},
-                    "layout_note": "DOCX and PDF were independently laid out from the same normalized content; visual review remains required."}
+                    "layout_note": (
+                        "PDF was rendered directly from the editable DOCX with " + renderer_details["pdf"] +
+                        "; both files share that layout. Visual review remains required."
+                        if "pdf" in formats and renderer_details["pdf"] in {"Microsoft Word", "LibreOffice"}
+                        else "PDF was independently laid out with ReportLab from the same normalized content; visual review remains required."
+                        if "pdf" in formats
+                        else "Editable DOCX generated; visual review remains required.")}
         manifest_path = output / "manifest.json"
         try:
             with manifest_path.open("x", encoding="utf-8", newline="\n") as stream:
@@ -843,7 +883,8 @@ def main(argv=None):
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--formats", default="docx,pdf")
     parser.add_argument("--font")
-    parser.add_argument("--template", choices=sorted(TEMPLATES), default="modern-cn")
+    parser.add_argument("--template", choices=sorted(TEMPLATES), default=None,
+                        help="override the saved resume template; structured documents default to modern-cn")
     parser.add_argument("--photo", type=Path)
     parser.add_argument("--renderer", choices=("auto", "reportlab", "libreoffice", "word"), default="auto")
     parser.add_argument("--page-policy", choices=("a4-1-2", "a4-1", "a4-1-3"), default="a4-1-3")

@@ -119,7 +119,7 @@ class ExperienceTranslationFlowTests(unittest.TestCase):
         from oriward.core import twin
         eid = lib.create({"event": "门店经营", "actions": ["负责采购"]})
         initial = twin.status()["health"]["jobs_without_pipeline"]
-        resume_content.compose(None, {"reason": "通用简历", "sections": [{"experience_id": eid}]})
+        resume_content.compose(None, {"reason": "通用简历", "sections": [{"experience_id": eid, "bullets": ["负责采购"]}]})
         before = twin.status()["health"]["jobs_without_pipeline"]
         twin.sync_legacy()
         with connect() as db:
@@ -187,7 +187,7 @@ class ExperienceTranslationFlowTests(unittest.TestCase):
     def test_profile_correction_replaces_stale_education_without_losing_other_prose(self):
         services.save_profile({"display_name": "虚构候选人", "education": "虚构学院 本科", "skills": ["采购"]})
         eid = lib.create({"event": "门店经营", "actions": ["负责采购"]})
-        base = resume_content.compose(self.job, {"reason": "首次整理", "sections": [{"experience_id": eid}],
+        base = resume_content.compose(self.job, {"reason": "首次整理", "sections": [{"experience_id": eid, "bullets": ["负责采购"]}],
             "profile_sections": [{"heading": "教育经历", "paragraphs": ["虚构学院 本科（精简表述）"]},
                                  {"heading": "专业技能", "paragraphs": ["日常采购与补货安排"]}]})
         services.save_profile({"display_name": "虚构候选人", "education": "虚构学院 专科",

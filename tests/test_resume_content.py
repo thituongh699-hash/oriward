@@ -70,7 +70,7 @@ class TailoredResumeTests(unittest.TestCase):
         self.assertNotIn("来源记录", text)
         self.assertNotIn("经历 ID", text)
 
-    def test_tailor_packet_and_compose_keep_every_approved_experience_in_template_order(self):
+    def test_tailor_packet_leaves_selection_to_author_and_keeps_explicit_order(self):
         from oriward import experience_library
         other_id = experience_library.create({"event": "直播运营｜互动玩法设计", "actions": ["在5人直播团队中承担运营"],
             "outcomes": ["相关玩法已在视频号、抖音实际开播"], "context": "2023.10—2024.11",
@@ -83,8 +83,8 @@ class TailoredResumeTests(unittest.TestCase):
 
         incomplete = self.data()
         repaired = r.compose(self.jid, incomplete)
-        self.assertIn(other_id, repaired["automatically_retained_ids"])
-        self.assertIn("直播运营", Path(repaired["path"]).read_text(encoding="utf-8"))
+        self.assertEqual(repaired["automatically_retained_ids"], [])
+        self.assertNotIn("直播运营", Path(repaired["path"]).read_text(encoding="utf-8"))
 
         complete = self.data()
         complete["sections"][0]["category"] = "工作经历"
@@ -123,7 +123,7 @@ class TailoredResumeTests(unittest.TestCase):
         with self.assertRaises(s.ValidationError):
             r.compose(self.jid, data)
 
-    def test_education_and_chronology_are_restored_without_approval(self):
+    def test_legacy_education_is_preserved_and_unselected_chronology_stays_omitted(self):
         from oriward import experience_library as e
         s.save_profile({"display_name": "虚构候选人", "education": [
             {"school": "虚构职业学院", "major": "物流管理", "degree": "专科", "period": "2004–2007"}]})
@@ -134,13 +134,14 @@ class TailoredResumeTests(unittest.TestCase):
         out = r.compose(self.jid, {"reason": "突出库存与客户协作", "sections": [
             {"experience_id": recent, "category": "经营经历", "bullets": ["安排采购补货并维护客户关系"]}]})
         content = Path(out["path"]).read_text(encoding="utf-8")
-        for value in ("教育经历", "虚构职业学院", "仓储协调", "2008–2014", "门店经营"):
+        for value in ("教育经历", "虚构职业学院", "门店经营"):
             self.assertIn(value, content)
-        self.assertIn(old, out["automatically_retained_ids"])
+        self.assertNotIn("仓储协调", content)
+        self.assertNotIn(old, out["automatically_retained_ids"])
         revised = feedback.revise_resume({"base_resume_id": out["id"], "reason": "调整表达", "sections": [
             {"experience_id": recent, "category": "经营经历", "bullets": ["负责日常采购与客户服务"]}]})
         self.assertIn("虚构职业学院", Path(revised["path"]).read_text(encoding="utf-8"))
-        self.assertIn("仓储协调", Path(revised["path"]).read_text(encoding="utf-8"))
+        self.assertNotIn("仓储协调", Path(revised["path"]).read_text(encoding="utf-8"))
 
     def test_grouped_sources_exclusion_and_general_resume(self):
         from oriward import experience_library as e
@@ -164,6 +165,145 @@ class TailoredResumeTests(unittest.TestCase):
         self.assertIn("保留数据报告表达", content)
         self.assertNotIn("不展示库存表达", content)
         self.assertEqual([row["experience_id"] for row in partially_excluded["coverage"]], [self.eid])
+
+    def test_expanded_requires_authored_bullets_and_brief_can_be_chronology_only(self):
+        for section in ({"experience_id": self.eid}, {"experience_id": self.eid, "bullets": []}):
+            with self.subTest(section=section), self.assertRaisesRegex(s.ValidationError, "explicit"):
+                r.compose(None, {"reason": "明确选择", "sections": [section]})
+        result = r.compose(None, {"reason": "只保留时间线", "sections": [
+            {"experience_id": self.eid, "mode": "brief", "bullets": []}]})
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("数据项目", text)
+        self.assertIn("2025.01", text)
+        self.assertNotIn("用 Python 整理数据并输出报告", text)
+        self.assertTrue(result["editorial_review_required"])
+        self.assertEqual(result["next"], f"resume editorial-packet --resume-id {result['id']}")
+
+    def test_authoritative_period_ignores_interview_and_recollection_context_dates(self):
+        from oriward import experience_library as e
+        items = [
+            ("自由文本回忆", "约2026.10—至今", "约2026年10月19日开始整理；2026-11-09访谈回忆", ""),
+            ("结构化工作", "2022.03—2024.06", {"company": "虚构公司", "notes": "2026-11-09访谈", "date_range": "2020.01—2021.01"}, "虚构公司"),
+            ("旧时间线", "", "2023.01—2024.02", ""),
+            ("旧年份时间线", "", "2008–2014", ""),
+            ("旧长横线年份", "", "2019—2022", ""),
+            ("旧持续时间", "", "2020年至今", ""),
+            ("旧中文年月", "", "2020年9月—2022年6月", ""),
+            ("旧来源附注", "", "2010–2012；原始来源：C:/private/interview-2026-11-09.txt", ""),
+            ("无日期工作", "", {"company": "虚构无日期公司", "location": "上海"}, ""),
+        ]
+        sections = []
+        for title, period, context, _ in items:
+            record = {"event": title, "context": context, "actions": ["整理资料"]}
+            if period:
+                record["time_period"] = period
+            sections.append({"experience_id": e.create(record), "category": "工作经历", "mode": "brief", "bullets": []})
+        result = r.compose(None, {"reason": "准确呈现经历时间", "sections": sections})
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        for expected in ("*约2026.10—至今*", "*虚构公司 · 2022.03—2024.06*", "*2023.01—2024.02*",
+                         "*2008–2014*", "*2019—2022*", "*2020年至今*", "*2020年9月—2022年6月*", "*2010–2012*",
+                         "*虚构无日期公司 · 上海*"):
+            self.assertIn(expected, text)
+        for unrelated in ("2026-11-09", "2026年10月19日", "2020.01—2021.01", "private", "原始来源"):
+            self.assertNotIn(unrelated, text)
+
+    def test_academic_bullets_are_attached_to_degree_and_skills_are_strength_subheads(self):
+        s.save_profile({"display_name": "虚构候选人", "education": "虚构大学 硕士",
+                        "skills": ["Python"], "certifications": ["英语六级"], "availability": "两周内到岗"})
+        data = self.data()
+        data.update(education_entries=[{"key": "masters", "title": "虚构大学 · 硕士", "meta": "2024–2027",
+                                       "paragraphs": ["研究方向：数据分析"]}],
+                    selection_notes={"rationale": "研究内容归入硕士教育", "omissions": [], "timeline": "已保留学位阶段"})
+        data["sections"][0].update(category="教育经历", education_key="masters")
+        result = r.compose(None, data)
+        text = Path(result["path"]).read_text(encoding="utf-8")
+        self.assertIn("### 虚构大学 · 硕士", text)
+        self.assertIn("研究方向：数据分析", text)
+        self.assertNotIn("### 数据项目", text)
+        self.assertNotIn("## 项目经历", text)
+        self.assertNotIn("\n## 专业技能", text)
+        self.assertIn("### 专业技能", text)
+        self.assertIn("### 资格证书", text)
+        self.assertLess(text.index("两周内到岗"), text.index("## 个人优势"))
+        snapshot = r.composition_for_resume(result["id"])
+        self.assertEqual(snapshot["selection_notes"], data["selection_notes"])
+        revised = feedback.revise_resume({"base_resume_id": result["id"], "reason": "修改抬头", "headline": "数据运营"})
+        current = r.composition_for_resume(revised["id"])
+        self.assertEqual(current["education_entries"], snapshot["education_entries"])
+        self.assertEqual(current["sections"], snapshot["sections"])
+        self.assertEqual(current["selection_notes"], snapshot["selection_notes"])
+        self.assertIn("虚构大学 · 硕士", Path(revised["path"]).read_text(encoding="utf-8"))
+        data["sections"][0]["education_key"] = "missing"
+        with self.assertRaisesRegex(s.ValidationError, "education_key"):
+            r.compose(None, data)
+        with self.assertRaisesRegex(s.ValidationError, "cannot be empty"):
+            r.compose(None, {**self.data(), "education_entries": []})
+
+    def test_degree_entries_require_refresh_after_profile_education_correction(self):
+        s.save_profile({"display_name": "虚构候选人", "education": "虚构大学 本科"})
+        data = {**self.data(), "education_entries": [{"key": "degree", "title": "虚构大学 本科"}]}
+        data["sections"][0].update(category="教育经历", education_key="degree")
+        original = r.compose(None, data)
+        s.save_profile({"display_name": "虚构候选人", "education": "虚构大学 专科"})
+        with self.assertRaisesRegex(s.ValidationError, "refreshed education_entries"):
+            feedback.revise_resume({"base_resume_id": original["id"], "reason": "资料更正"})
+        refreshed = feedback.revise_resume({"base_resume_id": original["id"], "reason": "资料更正",
+            "education_entries": [{"key": "degree", "title": "虚构大学 专科"}]})
+        text = Path(refreshed["path"]).read_text(encoding="utf-8")
+        self.assertIn("虚构大学 专科", text)
+        self.assertNotIn("本科", text)
+        self.assertEqual(r.composition_for_resume(refreshed["id"])["sections"][0]["education_key"], "degree")
+
+    def test_explicit_interests_are_rendered_without_default_interests_section(self):
+        plain = r.compose(None, self.data())
+        self.assertNotIn("个人兴趣", plain["section_order"])
+        explicit = r.compose(None, {**self.data(), "profile_sections": [
+            {"heading": "个人兴趣", "paragraphs": ["徒步与摄影"]}]})
+        text = Path(explicit["path"]).read_text(encoding="utf-8")
+        self.assertIn("## 个人兴趣", text)
+        self.assertIn("徒步与摄影", text)
+        self.assertEqual(explicit["section_order"][-1], "个人兴趣")
+
+    def test_template_preferences_resolve_and_are_frozen_for_revision(self):
+        s.save_profile({"display_name": "虚构候选人", "resume_preferences": {
+            "template": "clean", "section_order": ["项目经历", "教育经历", "个人优势"]}})
+        packet = r.tailor_packet(None)
+        self.assertEqual(packet["template"], "clean")
+        self.assertIn("clean/preview.png", packet["template_path"])
+        self.assertIn("education_entries", packet["contract"])
+        result = r.compose(None, self.data())
+        snapshot = r.composition_for_resume(result["id"])
+        self.assertEqual(snapshot["template"], "clean")
+        self.assertEqual(snapshot["section_order"][0], "项目经历")
+        s.save_profile({"display_name": "虚构候选人", "resume_preferences": {"template": "modern-cn"}})
+        revised = feedback.revise_resume({"base_resume_id": result["id"], "reason": "仅修改简介", "sections": [],
+                                         "profile_sections": [{"heading": "个人优势", "paragraphs": ["具备数据整理经验"]}]})
+        self.assertEqual(revised["template"], "clean")
+        self.assertEqual(revised["section_order"], result["section_order"])
+        explicit = r.compose(None, {**self.data(), "template": "reference"})
+        self.assertEqual(explicit["template"], "reference")
+        with self.assertRaisesRegex(s.ValidationError, "template must"):
+            r.compose(None, {**self.data(), "template": "unknown"})
+
+    def test_categories_are_canonical_and_unsupported_group_claims_are_dropped(self):
+        from oriward import experience_library as e
+        other = e.create({"event": "库存工作", "actions": ["库存原始事实"]})
+        data = self.data()
+        data["sections"][0]["category"] = "经营经历"
+        result = r.compose(None, data)
+        self.assertIn("## 工作经历", Path(result["path"]).read_text(encoding="utf-8"))
+        data["sections"][0]["category"] = "其他经历"
+        with self.assertRaisesRegex(s.ValidationError, "reclassify"):
+            r.compose(None, data)
+        base = r.compose(None, {"reason": "整合", "sections": [{"experience_ids": [self.eid, other],
+            "title": "共同项目", "category": "项目经历", "bullets": ["未分配来源的共同表述"]}]})
+        revised = feedback.revise_resume({"base_resume_id": base["id"], "reason": "排除一项来源",
+                                         "exclude_experience_ids": [other]})
+        text = Path(revised["path"]).read_text(encoding="utf-8")
+        self.assertNotIn("未分配来源的共同表述", text)
+        self.assertNotIn("库存原始事实", text)
+        self.assertNotIn("用 Python 整理数据并输出报告", text)
+        self.assertEqual(r.composition_for_resume(revised["id"])["sections"][0]["mode"], "brief")
 
     def test_packet_pagination_visits_large_library_without_all_details(self):
         from oriward import experience_library as e

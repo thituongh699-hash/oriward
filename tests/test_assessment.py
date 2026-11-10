@@ -314,7 +314,7 @@ class AssessmentTests(unittest.TestCase):
             self.requirement("python", "Python is required", "hard_gate", "met", ["EXP2"])
         ], selected_ids=["EXP1"])
         from oriward.resume_content import compose
-        resume = compose(job_id, {"reason": "用户只展示第一段", "sections": [{"experience_id": first}],
+        resume = compose(job_id, {"reason": "用户只展示第一段", "sections": [{"experience_id": first, "mode": "brief", "bullets": []}],
                                   "exclude_experience_ids": [second]})
         with self.assertRaisesRegex(s.ValidationError, "not selected"):
             a.save_review(self.review(resume, analysis_id, [resolved[0]["id"]]))

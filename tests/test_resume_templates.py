@@ -35,6 +35,10 @@ class ResumeTemplateTests(unittest.TestCase):
             manifest = exporter.export_document(document=self.doc, output_dir=output, template=template)
             self.assertEqual(manifest["template"], template)
             self.assertIn(manifest["renderer"]["pdf"], {"Microsoft Word", "LibreOffice", "ReportLab"})
+            if manifest["renderer"]["pdf"] == "ReportLab":
+                self.assertIn("independently laid out", manifest["layout_note"])
+            else:
+                self.assertIn("rendered directly from the editable DOCX", manifest["layout_note"])
             self.assertNotIn("fallback_reason", manifest["renderer"])
             self.assertTrue((output / "document.docx").is_file())
             self.assertTrue((output / "document.pdf").is_file())
@@ -48,6 +52,50 @@ class ResumeTemplateTests(unittest.TestCase):
             doc = exporter._normalise_document({"title": "Candidate", "sections": [{"paragraphs": [text]}]})
             with self.assertRaisesRegex(exporter.ExportError, code):
                 exporter._validate_resume_content(doc)
+
+    def test_reference_layout_keeps_skills_and_degree_subheadings_with_their_bullets(self):
+        try:
+            import docx
+            from pypdf import PdfReader
+            import reportlab  # noqa: F401
+        except ImportError:
+            self.skipTest("optional document libraries unavailable")
+        markdown = "\n".join(["# 虚构候选人", "", "fictional@example.test", "", "## 个人优势", "",
+            "具备数据整理与报告交付经验", "", "### 专业技能", "", "- Python 数据清理", "",
+            "### 资格证书", "", "- 虚构测试证书", "", "## 教育经历", "",
+            "### 虚构大学 · 统计学学士", "", "*2022.09–2026.06*", "", "- 课程数据分析报告", ""])
+        document, _ = exporter._parse_resume_markdown(markdown)
+        try:
+            font = exporter._choose_font(exporter._all_text(document), None, require_pdf=True)
+        except exporter.ExportError as exc:
+            self.skipTest(f"No embeddable local font: {exc}")
+        docx_path, pdf_path = self.root / "reference.docx", self.root / "reference.pdf"
+        with docx_path.open("wb") as stream:
+            exporter._write_docx(document, stream, font, exporter._font_family(font), "reference")
+        with pdf_path.open("wb") as stream:
+            exporter._write_pdf(document, stream, font, "reference")
+        editable = docx.Document(docx_path)
+        paragraphs = editable.paragraphs
+        # Word must not expand CJK lines to font-metric or document-grid spacing.
+        from docx.oxml.ns import qn
+        from docx.shared import Pt
+        for name, leading in (("Normal", 13), ("List Bullet", 13), ("Title", 24),
+                              ("Subtitle", 13), ("Heading 1", 15), ("Heading 2", 13)):
+            style = editable.styles[name]
+            self.assertEqual(style.paragraph_format.line_spacing, Pt(leading))
+            self.assertEqual(style._element.pPr.find(qn("w:snapToGrid")).get(qn("w:val")), "0")
+        # DOCX stores font sizes in half points, retaining the existing 10pt size.
+        self.assertEqual(editable.styles["Normal"].font.size, Pt(10))
+        self.assertEqual([(p.text, p.style.name) for p in paragraphs if p.style.name.startswith("Heading")],
+            [("个人优势", "Heading 1"), ("专业技能", "Heading 2"), ("资格证书", "Heading 2"),
+             ("教育经历", "Heading 1"), ("虚构大学 · 统计学学士", "Heading 2")])
+        expected = ["个人优势", "专业技能", "Python 数据清理", "资格证书", "虚构测试证书", "教育经历",
+                    "虚构大学", "2022.09", "课程数据分析报告"]
+        reader = PdfReader(pdf_path)
+        self.assertEqual(len(reader.pages), 1)
+        for text in ("\n".join(p.text for p in paragraphs), reader.pages[0].extract_text()):
+            positions = [text.index(value) for value in expected]
+            self.assertEqual(positions, sorted(positions))
 
     def test_renderer_and_page_policy_are_explicit(self):
         try:
@@ -83,7 +131,11 @@ class ResumeTemplateTests(unittest.TestCase):
             target = self.root / template
             exporter.export_document(document=self.doc, output_dir=target, formats=("docx",),
                                      template=template, photo=photo)
-            self.assertEqual(len(docx.Document(target / "document.docx").inline_shapes), 1)
+            editable = docx.Document(target / "document.docx")
+            self.assertEqual(len(editable.inline_shapes), 1)
+            from docx.enum.text import WD_LINE_SPACING
+            portrait_paragraph = editable.tables[0].cell(0, 2).paragraphs[0]
+            self.assertEqual(portrait_paragraph.paragraph_format.line_spacing_rule, WD_LINE_SPACING.SINGLE)
             no_photo = self.root / (template + "-no-photo")
             exporter.export_document(document=self.doc, output_dir=no_photo, formats=("docx",), template=template)
             self.assertEqual(len(docx.Document(no_photo / "document.docx").inline_shapes), 0)
@@ -104,7 +156,9 @@ class ResumeTemplateTests(unittest.TestCase):
             receipt = generator.create_sample_resume()
             text = Path(receipt["path"]).read_text(encoding="utf-8")
             self.assertEqual([line for line in text.splitlines() if line.startswith("## ")],
-                             ["## 个人优势", "## 教育经历", "## 项目经历", "## 专业技能", "## 个人兴趣"])
+                             ["## 个人优势", "## 教育经历", "## 项目经历", "## 个人兴趣"])
+            self.assertLess(text.index("## 个人优势"), text.index("### 专业技能"))
+            self.assertLess(text.index("### 专业技能"), text.index("## 教育经历"))
             for expected in ("虚构大学", "统计学学士", "概率统计", "校园出行问卷分析", "2025.03–2025.06",
                              "课程图书借阅观察", "2024.09–2024.12", "Excel 数据透视表", "徒步"):
                 self.assertIn(expected, text)

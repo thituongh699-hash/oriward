@@ -231,7 +231,7 @@ def get_job(job_id):
 
 
 def build_resume(job_id, experience_ids, headline=""):
-    """Compatibility entrypoint using the same complete draft composition."""
+    """Compatibility material assembly; the host must still select and rewrite."""
     if not experience_ids:
         raise ValidationError("Select at least one experience")
     from .resume_content import compose
@@ -243,9 +243,12 @@ def build_resume(job_id, experience_ids, headline=""):
             material = validate_for_resume(db, eid)
             sections.append({"experience_id": eid,
                              "bullets": material.get("actions", []) + material.get("outcomes", [])})
-    return compose(job_id, {"reason": "Organize the user's existing career material",
+    result = compose(job_id, {"reason": "Organize the user's existing career material",
                             "headline": headline,
                             "sections": sections})
+    result["content_stage"] = "source_material_baseline"
+    result["next"] = "Read resume tailor-packet, select evidence and write a targeted resume compose draft before editorial review"
+    return result
 
 
 def _validate_channel(channel):

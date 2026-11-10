@@ -11,12 +11,27 @@ from .db import audit, connect, deserialize, now, one, serialize
 def public_context(value):
     """Only public date/organisation context belongs in a candidate document."""
     if isinstance(value, dict):
-        return " · ".join(safe_text(str(value[k]), f"context.{k}") for k in
-                          ("organization", "organisation", "company", "location", "period", "dates", "date_range")
-                          if value.get(k) and isinstance(value[k], (str, int)))
-    if isinstance(value, str):
-        return safe_text(value, "context")
-    return ""
+        raw = " · ".join(str(value[k]) for k in
+                         ("organization", "organisation", "company", "location", "period", "dates", "date_range")
+                         if value.get(k) and isinstance(value[k], (str, int)))
+    elif isinstance(value, str):
+        raw = value
+    else:
+        return ""
+    # Recovered contexts can include source locators; keep dates and roles but
+    # prevent local paths and provenance notes from entering candidate-facing text.
+    raw = re.sub(r"(?:[A-Za-z]:[\\/][^；。]+|/(?:home|Users|tmp)/[^；。]+)", "", raw)
+    raw = re.sub(r"(?:详细原始来源见|详细原始来源|原始来源|商业计划书来源|旧记录来源|来源)[：:].*?(?=。|；|$)", "", raw)
+    raw = re.sub(r"(?:source_record和evidence|Codex 会话)[^。；]*", "", raw)
+    # Free-form recovered contexts often mix dates with internal provenance;
+    # expose only date-like fragments and rely on _period for the full timeline.
+    endpoint = r"(?:约)?\d{4}(?:年(?:\d{1,2}月(?:\d{1,2}日)?)?|[./-]\d{1,2}(?:[./-]\d{1,2})?)?"
+    date = r"(?:约)?\d{4}(?:年\d{1,2}月(?:\d{1,2}日)?|[./-]\d{1,2}(?:[./-]\d{1,2})?)"
+    dates = re.findall(rf"{endpoint}\s*(?:[–—~～-]|至)\s*(?:至今|现在|今|{endpoint})|{date}", raw)
+    if not dates and re.fullmatch(endpoint, raw.strip()):
+        dates = [raw.strip()]
+    raw = " · ".join(dict.fromkeys(dates))
+    return safe_text(raw, "context") if raw else ""
 
 
 def safe_text(value, label):
@@ -119,14 +134,20 @@ def tailor_packet(job_id=None, *, reference_job_ids=None, target_title=None, off
     job = s.get_job(job_id) if job_id is not None else None
     if job_id is not None and target["type"] == "job":
         from .assessment import analysis_packet
-        analysis = {"primary": analysis_packet(job_id), **target_analyses}
+        analysis = {**target_analyses, "primary": analysis_packet(job_id)}
     else:
         analysis = target_analyses
     page = index(budget=budget, offset=offset)
     ids = [item["id"] for item in page["items"]]
+    profile = s.get_profile()
+    template, section_order = _layout({}, profile)
     return {"job_id": job_id, "reference_job_ids": target["reference_job_ids"], "target": target,
             "job": job,
-            "profile": s.get_profile(),
+            "profile": profile,
+            "resume_preferences": profile.get("resume_preferences", {}),
+            "template": template, "section_order": section_order,
+            "template_path": f"docs/assets/resume-templates/{template}/preview.png",
+            "layout_guidance": "Keep the selected template; skills and certificates are H3 under 个人优势; arrival belongs in the header. Education entries are degree H3 blocks with their assigned academic bullets.",
             "analysis": analysis,
             "experience_index": page,
             "experience_details": [],
@@ -146,9 +167,22 @@ def tailor_packet(job_id=None, *, reference_job_ids=None, target_title=None, off
             "contract": {"sections": [{"experience_id": 1, "category": "工作经历", "mode": "expanded",
                                         "bullets": ["Natural, factual wording for the target role"]}],
                          "experience_ids": "Use instead of experience_id to group events from one career stage",
-                         "exclude_experience_ids": "Only histories the user does not want in this resume",
-                         "profile_sections": "optional profile paragraphs; existing education is included automatically",
-                         "section_order": "optional existing personal template order",
+                         "section_fields": ["experience_id OR experience_ids", "category", "mode", "title?", "title_claim?", "bullets", "links?", "education_key?"],
+                         "claim": {"text": "Authored wording", "experience_ids": [1], "source_texts": ["Optional exact source fact"], "change_type": "exact | wording_only | new_facts | unclassified", "new_facts": "Explicit nonempty array only for new_facts"},
+                         "links": [{"label": "Public project link", "url": "https://example.invalid/project"}],
+                         "headline": "Optional application direction in header",
+                         "summary": "Optional text or source-mapped claim; experience_ids must belong to selected sections",
+                         "categories": list(EXPERIENCE_CATEGORIES),
+                         "mode": "expanded requires explicit nonempty bullets; brief requires explicit bullets and may use [] for title/date chronology",
+                         "exclude_experience_ids": "Optional explicit exclusions; unselected experiences stay omitted",
+                         "education_entries": [{"key": "degree-key", "title": "School · degree · major grounded in profile", "meta": "Known dates/status", "paragraphs": ["Optional grounded education prose"]}],
+                         "education_key": "Required on 教育经历 sections; must match an education_entries key; academic bullets are rendered under that degree",
+                         "profile_sections": "optional profile paragraphs; legacy education is preserved only when education_entries is absent",
+                         "profile_section_fields": {"heading": "个人优势 | 教育经历 | 专业技能 | 资格证书 | 到岗安排 | 个人兴趣", "paragraphs": ["Grounded profile wording; skills/certificates nest under strengths; arrival appears in header"]},
+                         "template": "reference | modern-cn | clean; data then saved preference then reference",
+                         "section_order": "optional top-level headings; data then saved preference then default strengths/education/work/project/internship",
+                         "selection_notes": "Optional background object/text: model rationale, omissions, timeline decisions; never asks user to approve a coverage table",
+                         "chronology": "Read the complete index, decide expanded/brief/omitted stages, explain important omissions or gaps in selection_notes; Python never restores omitted items",
                          "reason": "How the experience supports the target work"}}
 
 
@@ -210,21 +244,82 @@ def _period(exp):
             return str(value).strip()
     if exp.get("start_date"):
         return str(exp["start_date"]) + (" — " + str(exp["end_date"]) if exp.get("end_date") else "")
-    return context if isinstance(context, str) and re.search(r"\d{4}", context) else ""
+    if isinstance(context, str) and re.search(r"(?:^|[^0-9A-Za-z])(?:约)?\d{4}", context):
+        return public_context(context)
+    return ""
 
 
 def _category(exp):
-    if exp.get("category") in EXPERIENCE_CATEGORIES:
-        return exp["category"]
+    if exp.get("category"):
+        return _canonical_category(exp["category"])
     kind = exp.get("kind", exp.get("experience_type", ""))
     if kind in {"work", "employment"}: return "工作经历"
-    if kind in {"business", "self_employment"}: return "经营经历"
+    if kind in {"business", "self_employment"}: return "工作经历"
     if kind == "internship": return "实习经历"
-    return "其他经历"
+    if kind == "education": return "教育经历"
+    return "项目经历"
 
 
-EXPERIENCE_CATEGORIES = ("工作经历", "经营经历", "项目经历", "实习经历", "其他经历")
+EXPERIENCE_CATEGORIES = ("工作经历", "项目经历", "实习经历", "教育经历")
 PROFILE_CATEGORIES = ("个人优势", "教育经历", "专业技能", "资格证书", "到岗安排", "个人兴趣")
+DEFAULT_SECTION_ORDER = ["个人优势", "教育经历", "工作经历", "项目经历", "实习经历"]
+
+
+def _canonical_category(value):
+    aliases = {"work": "工作经历", "business": "工作经历", "经营经历": "工作经历",
+               "project": "项目经历", "internship": "实习经历", "education": "教育经历"}
+    category = aliases.get(value, value)
+    if category == "其他经历":
+        raise s.ValidationError("其他经历 is not a resume category; reclassify as 工作经历/项目经历/实习经历, or attach academic content to 教育经历 with education_key")
+    if category not in EXPERIENCE_CATEGORIES:
+        raise s.ValidationError("Unknown experience category; use 工作经历/项目经历/实习经历/教育经历")
+    return category
+
+
+def _layout(data, profile):
+    preferences = profile.get("resume_preferences", {})
+    if not isinstance(preferences, dict):
+        preferences = {}
+    template = data.get("template", preferences.get("template", "reference"))
+    if template not in {"reference", "modern-cn", "clean"}:
+        raise s.ValidationError("template must be reference|modern-cn|clean")
+    order = data.get("section_order", preferences.get("section_order", DEFAULT_SECTION_ORDER))
+    if not isinstance(order, list):
+        raise s.ValidationError("section_order must be an array of known headings")
+    normalized = []
+    for heading in order:
+        if heading in {"专业技能", "资格证书"}:
+            heading = "个人优势"
+        elif heading == "到岗安排":
+            continue
+        elif heading == "经营经历":
+            heading = "工作经历"
+        if heading not in (*DEFAULT_SECTION_ORDER, "个人兴趣"):
+            raise s.ValidationError("section_order must contain known top-level headings")
+        if heading not in normalized:
+            normalized.append(heading)
+    return template, list(dict.fromkeys([*normalized, *DEFAULT_SECTION_ORDER]))
+
+
+def _education_entries(data):
+    entries = data.get("education_entries", [])
+    if not isinstance(entries, list):
+        raise s.ValidationError("education_entries must be an array")
+    result, keys = [], set()
+    for item in entries:
+        if not isinstance(item, dict):
+            raise s.ValidationError("education entry must be an object")
+        key = safe_text(item.get("key"), "education.key")
+        if key in keys:
+            raise s.ValidationError("education_entries keys must be unique")
+        keys.add(key)
+        paragraphs = item.get("paragraphs", [])
+        if not isinstance(paragraphs, list):
+            raise s.ValidationError("education paragraphs must be an array")
+        result.append({"key": key, "title": safe_text(item.get("title"), "education.title"),
+                       "meta": safe_text(item["meta"], "education.meta") if item.get("meta") else "",
+                       "paragraphs": [safe_text(p, "education paragraph") for p in paragraphs]})
+    return result
 
 
 def _profile_paragraphs(value):
@@ -245,7 +340,8 @@ def _profile_paragraphs(value):
 def _profile_defaults(profile):
     groups = {}
     for field, heading in (("education", "教育经历"), ("education_history", "教育经历"),
-                           ("skills", "专业技能"), ("certifications", "资格证书")):
+                           ("skills", "专业技能"), ("certifications", "资格证书"),
+                           ("availability", "到岗安排")):
         groups.setdefault(heading, []).extend(_profile_paragraphs(profile.get(field)))
     summary = profile.get("summary_verified", "")
     summary_parts = [part.strip() for part in re.split(r"[。\n；]", summary) if part.strip()] if isinstance(summary, str) else []
@@ -261,7 +357,7 @@ def _profile_defaults(profile):
 
 def compose(job_id, data, *, reference_job_ids=None, target_title=None):
     from copy import deepcopy
-    from .experience_library import validate_for_resume, record_resume_sources, list_current, usable_facts
+    from .experience_library import validate_for_resume, record_resume_sources
     from .feedback import ensure_schema, _id
     s.validate_dict(data, ["reason", "sections"])
     if not isinstance(data["sections"], list):
@@ -283,6 +379,11 @@ def compose(job_id, data, *, reference_job_ids=None, target_title=None):
     profile = s.get_profile()
     person = safe_text(profile.get("display_name"), "current display_name")
     requested = deepcopy(data)
+    template, order = _layout(data, profile)
+    education_entries = _education_entries(data)
+    if "education_entries" in data and not education_entries and _profile_defaults(profile).get("教育经历"):
+        raise s.ValidationError("education_entries cannot be empty when profile education exists; supply grounded degree entries or omit the field to preserve legacy education")
+    education_keys = {item["key"] for item in education_entries}
     excluded = data.get("exclude_experience_ids", [])
     if not isinstance(excluded, list):
         raise s.ValidationError("exclude_experience_ids must be an array")
@@ -295,11 +396,11 @@ def compose(job_id, data, *, reference_job_ids=None, target_title=None):
         elif job_id is None:
             job_id = _general_job(db)
         one(db, "jobs", job_id)
-        available = {row["id"]: validate_for_resume(db, row["id"]) for row in list_current(conn=db)
-                     if not row["data"]["needs_review"] and usable_facts(row["data"])}
         section_data = deepcopy(data["sections"])
         supplied_ids = set()
         for section in section_data:
+            if not isinstance(section, dict):
+                raise s.ValidationError("section must be an object")
             ids = section.get("experience_ids", [section.get("experience_id")])
             if not isinstance(ids, list) or not ids:
                 raise s.ValidationError("Each section requires experience_id or experience_ids")
@@ -308,13 +409,7 @@ def compose(job_id, data, *, reference_job_ids=None, target_title=None):
                 raise s.ValidationError("Duplicate experience section")
             supplied_ids.update(ids)
             section["experience_ids"] = ids
-        # Repair editorial omissions, without asking the user to approve a coverage table.
-        restored = []
-        for eid, exp in available.items():
-            if eid not in supplied_ids and eid not in excluded:
-                section_data.append({"experience_ids": [eid], "category": _category(exp), "mode": "brief"})
-                restored.append(eid)
-        mapping, rendered, selected, coverage, pending = [], [], [], [], False
+        mapping, rendered, selected, coverage, pending, effective_sections = [], [], [], [], False, []
         for section in section_data:
             original_ids = section["experience_ids"]
             ids = [eid for eid in original_ids if eid not in excluded]
@@ -329,11 +424,15 @@ def compose(job_id, data, *, reference_job_ids=None, target_title=None):
                 section["bullets"] = [bullet for bullet in section.get("bullets", [])
                                       if isinstance(bullet, dict) and bullet.get("experience_ids")
                                       and set(bullet["experience_ids"]).issubset(ids)]
+                if not section["bullets"]:
+                    section["mode"] = "brief"
             exps = [validate_for_resume(db, eid) for eid in ids]
             selected.extend(ids)
-            category = section.get("category", _category(exps[0]))
-            if category not in EXPERIENCE_CATEGORIES:
-                raise s.ValidationError("Unknown experience category")
+            category = _canonical_category(section["category"]) if "category" in section else _category(exps[0])
+            section["category"] = category
+            education_key = section.get("education_key")
+            if category == "教育经历" and education_key not in education_keys:
+                raise s.ValidationError("Academic 教育经历 sections require education_key matching an education_entries degree")
             mode = section.get("mode", "expanded")
             if mode not in {"expanded", "brief"}:
                 raise s.ValidationError("mode must be expanded or brief")
@@ -342,26 +441,36 @@ def compose(job_id, data, *, reference_job_ids=None, target_title=None):
             if entry["text"] != title:
                 raise s.ValidationError("title_claim text must match title")
             mapping.append({"field": "title", **entry}); pending |= needs
-            lines = [f"### {title}"]
+            # Academic claims are assigned to their degree, never a separate research H3.
+            lines = [] if category == "教育经历" else [f"### {title}"]
             metas = []
             for exp in exps:
-                context, period = public_context(exp.get("context")), _period(exp)
+                context_value, period = exp.get("context"), _period(exp)
+                explicit_period = any(exp.get(key) for key in ("time_period", "period", "dates", "date_range", "start_date"))
+                if isinstance(context_value, dict):
+                    explicit_period = explicit_period or any(context_value.get(key) for key in ("time_period", "period", "dates", "date_range"))
+                    # Structured organisation is public metadata; free prose
+                    # dates can instead identify interviews or recollections.
+                    organization = " · ".join(safe_text(str(context_value[key]), "experience organization")
+                                              for key in ("organization", "organisation", "company", "location")
+                                              if context_value.get(key) and isinstance(context_value[key], (str, int)))
+                else:
+                    organization = ""
+                context = organization if organization or explicit_period else public_context(context_value)
                 meta = context
                 if period and period not in context:
                     meta = " · ".join(filter(None, [context, period]))
                 if meta and meta not in metas:
                     metas.append(meta)
-            lines.extend(f"*{safe_text(meta, 'experience context')}*" for meta in metas)
+            if category != "教育经历":
+                lines.extend(f"*{safe_text(meta, 'experience context')}*" for meta in metas)
             lines.append("")
             bullets = section.get("bullets")
-            if not bullets:
-                bullets = []
-                for exp in exps:
-                    facts = exp.get("actions", []) + exp.get("outcomes", [])
-                    if facts:
-                        bullets.append(facts[0])
             if not isinstance(bullets, list):
-                raise s.ValidationError("bullets must be an array")
+                raise s.ValidationError("bullets must be an explicit array; write expanded bullets or choose brief with []")
+            if mode == "expanded" and not bullets:
+                raise s.ValidationError("expanded sections require explicit nonempty bullets; choose brief with [] for title/date chronology")
+            effective_sections.append(section)
             for bullet in bullets:
                 bullet_ids = bullet.get("experience_ids", ids) if isinstance(bullet, dict) else ids
                 if not isinstance(bullet_ids, list) or not bullet_ids or not set(bullet_ids).issubset(ids):
@@ -381,22 +490,33 @@ def compose(job_id, data, *, reference_job_ids=None, target_title=None):
             years = re.findall(r"\d{4}(?:[.\-/年]\d{1,2})?", _period(exps[0]))
             # Only known dates are sorted; no invented start/end dates for gaps.
             sort_key = tuple(int(n) for n in re.findall(r"\d+", years[0])) if years else (0,)
-            rendered.append((category, sort_key, lines + [""]))
+            rendered.append((category, sort_key, lines + [""], education_key))
             coverage.extend({"experience_id": eid, "mode": mode, "title": title,
-                             "automatically_retained": eid in restored} for eid in ids)
+                             "automatically_retained": False} for eid in ids)
         profile_groups = _profile_defaults(profile)
+        if "education_entries" in data:
+            profile_groups.pop("教育经历", None)
         for item in data.get("profile_sections", []):
             heading, paragraphs = item.get("heading"), item.get("paragraphs")
             if heading not in PROFILE_CATEGORIES or not isinstance(paragraphs, list):
                 raise s.ValidationError("profile sections require a known heading and paragraphs")
-            if paragraphs:
-                profile_groups[heading] = [safe_text(p.get("text") if isinstance(p, dict) else p,
-                                                   "profile paragraph") for p in paragraphs]
+            if heading == "教育经历" and "education_entries" in data:
+                raise s.ValidationError("Use education_entries paragraphs for education when degree entries are supplied")
+            profile_groups[heading] = [safe_text(p.get("text") if isinstance(p, dict) else p,
+                                               "profile paragraph") for p in paragraphs]
+            if heading == "个人兴趣" and paragraphs and heading not in order:
+                order.append(heading)
         for heading, paragraphs in profile_groups.items():
             for paragraph in paragraphs:
                 mapping.append({"field": "profile_section", "heading": heading, "text": paragraph,
                                 "source": "profile", "source_snapshot": profile,
                                 "change_type": "wording_only"})
+        for degree in education_entries:
+            for field in ("title", "meta", "paragraphs"):
+                values = degree[field] if isinstance(degree[field], list) else [degree[field]]
+                for text in filter(None, values):
+                    mapping.append({"field": "education_entry", "education_key": degree["key"], "text": text,
+                                    "source": "profile", "source_snapshot": profile, "change_type": "wording_only"})
         summary_text = None
         if data.get("summary"):
             summary = data["summary"]
@@ -416,27 +536,37 @@ def compose(job_id, data, *, reference_job_ids=None, target_title=None):
             if values: lines += [" · ".join(values), ""]
         if data.get("headline"):
             lines += [f"*申请方向：{safe_text(data['headline'], 'headline')}*", ""]
+        if profile_groups.get("到岗安排"):
+            lines += [" · ".join(profile_groups.pop("到岗安排")), ""]
         if summary_text:
             if not any(item.get("heading") == "个人优势" for item in data.get("profile_sections", [])):
                 profile_groups["个人优势"] = []
             profile_groups.setdefault("个人优势", []).insert(0, summary_text)
-        work_first = any(category in {"工作经历", "经营经历"} for category, _, _ in rendered)
-        default_order = (("个人优势", "工作经历", "经营经历", "项目经历", "实习经历", "其他经历", "教育经历", "专业技能")
-                         if work_first else ("个人优势", "教育经历", "专业技能", *EXPERIENCE_CATEGORIES))
-        order = data.get("section_order", list(default_order))
-        if not isinstance(order, list) or any(h not in (*PROFILE_CATEGORIES, *EXPERIENCE_CATEGORIES) for h in order):
-            raise s.ValidationError("section_order must contain known section headings")
-        order = list(dict.fromkeys([*order, *PROFILE_CATEGORIES, *EXPERIENCE_CATEGORIES]))
         for heading in order:
             paragraphs = profile_groups.get(heading, [])
             group = [item for item in rendered if item[0] == heading]
-            if heading in {"工作经历", "经营经历", "实习经历", "其他经历"}:
+            if heading in {"工作经历", "实习经历"}:
                 group.sort(key=lambda item: item[1], reverse=True)
-            if paragraphs or group:
+            subgroups = [(subheading, profile_groups.get(subheading, [])) for subheading in ("专业技能", "资格证书")] if heading == "个人优势" else []
+            if paragraphs or group or any(values for _, values in subgroups) or (heading == "教育经历" and education_entries):
                 lines += [f"## {heading}", ""]
             lines.extend(line for paragraph in paragraphs for line in (paragraph, ""))
-            for _, _, content_lines in group:
-                lines += content_lines
+            for subheading, values in subgroups:
+                if values:
+                    lines += [f"### {subheading}", ""]
+                    lines.extend(line for paragraph in values for line in (paragraph, ""))
+            if heading == "教育经历":
+                for degree in education_entries:
+                    lines += [f"### {degree['title']}", ""]
+                    if degree["meta"]:
+                        lines += [f"*{degree['meta']}*", ""]
+                    lines.extend(line for paragraph in degree["paragraphs"] for line in (paragraph, ""))
+                    for _, _, content_lines, key in group:
+                        if key == degree["key"]:
+                            lines += content_lines
+            else:
+                for _, _, content_lines, _ in group:
+                    lines += content_lines
         content = "\n".join(lines)
         try:
             cursor = db.execute("INSERT INTO resumes(job_id,experience_ids,output_path,sha256,created_at) VALUES (?,?,?,?,?)",
@@ -453,9 +583,13 @@ def compose(job_id, data, *, reference_job_ids=None, target_title=None):
                        (rid, rid, None, "[]", safe_text(data["reason"], "reason"), serialize(mapping), status, now()))
             record_resume_sources(db, rid, selected)
             # Persist resolved coverage and composition separately from candidate-facing prose.
-            requested["sections"] = section_data
+            requested["sections"] = effective_sections
             requested["_profile_snapshot"] = profile
             requested["_target_snapshot"] = target_snapshot
+            requested["template"] = template
+            requested["section_order"] = order
+            if "education_entries" in data:
+                requested["education_entries"] = education_entries
             # audit() truncates human log messages to 200 chars; these are full version snapshots.
             for kind, payload in (("resume.composition", requested), ("resume.coverage", coverage)):
                 db.execute("INSERT INTO audit_events(kind,resource,resource_id,detail,created_at) VALUES (?,?,?,?,?)",
@@ -469,6 +603,8 @@ def compose(job_id, data, *, reference_job_ids=None, target_title=None):
     return {"id": rid, "path": str(path), "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
             "factual_status": status, "requires_new_review": False,
             "whole_draft_review_required": False, "review_suggested": targeted,
+            "editorial_review_required": True, "next": f"resume editorial-packet --resume-id {rid}",
+            "template": template, "section_order": order,
             "workflow": {"mode": ("job_targeted" if targeted else
                                     "direction_targeted" if target_snapshot["type"] == "direction" else "baseline_only"),
                           "command": f"resume workflow --job-id {job_id} --resume-id {rid}" if targeted else None,
@@ -477,7 +613,7 @@ def compose(job_id, data, *, reference_job_ids=None, target_title=None):
                                    "评级与模拟面试必须绑定本岗位和这个简历版本" if targeted else
                                    "先选择真实岗位，再进入评级和模拟面试")},
             "pending_new_facts": [m for m in mapping if m.get("change_type") == "new_facts"],
-            "coverage": coverage, "automatically_retained_ids": restored,
+            "coverage": coverage, "automatically_retained_ids": [],
             "excluded_experience_ids": sorted(excluded), "required_experience_ids": [],
             "retention": cleanup(job_id=job_id, apply=True, rename=False)}
 

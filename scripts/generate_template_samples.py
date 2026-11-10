@@ -42,12 +42,16 @@ def create_sample_resume():
     for event, period, actions in examples:
         eid = experience_library.create({"event": event, "category": "项目经历", "time_period": period,
             "source_type": "user_message", "actions": actions})
-        sections.append({"experience_id": eid, "category": "项目经历", "bullets": actions})
+        if event.startswith("课程"):
+            sections.append({"experience_id": eid, "category": "教育经历", "education_key": "bachelor",
+                             "bullets": [f"{event}（{period}）：" + "".join(actions)]})
+        else:
+            sections.append({"experience_id": eid, "category": "项目经历", "bullets": actions})
     return resume_content.compose(None, {"reason": "Wholly fictional template demonstration",
         "headline": "数据分析方向", "sections": sections,
-        "profile_sections": [{"heading": "教育经历", "paragraphs": [
-            "虚构大学 | 统计学学士 | 2022.09–2026.06", "课程：概率统计、数据库基础、应用回归"]},
-            {"heading": "个人兴趣", "paragraphs": ["徒步"]}],
+        "education_entries": [{"key": "bachelor", "title": "虚构大学 | 统计学学士",
+                               "meta": "2022.09–2026.06", "paragraphs": ["课程：概率统计、数据库基础、应用回归"]}],
+        "profile_sections": [{"heading": "个人兴趣", "paragraphs": ["徒步"]}],
         "section_order": ["个人优势", "教育经历", "项目经历", "专业技能", "个人兴趣"]})
 
 

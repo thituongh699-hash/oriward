@@ -115,6 +115,11 @@ class ResumeTargetTests(unittest.TestCase):
         self.assertEqual(packet["target"]["reference_job_ids"], [self.job_ids[1]])
         self.assertEqual([job["role"] for job in packet["target"]["jobs"]], ["primary", "reference"])
 
+    def test_primary_analysis_packet_is_not_overwritten_by_missing_saved_analysis(self):
+        with patch("oriward.assessment.analysis_packet", return_value={"role_purpose": "packet-marker"}):
+            packet = resume.tailor_packet(self.job_ids[0])
+        self.assertEqual(packet["analysis"]["primary"]["role_purpose"], "packet-marker")
+
 
 if __name__ == "__main__":
     unittest.main()

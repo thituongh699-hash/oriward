@@ -202,7 +202,7 @@ class ResumeWorkbenchTests(unittest.TestCase):
         with self.assertRaisesRegex(services.ValidationError, "not found"):
             workbench.workflow(job_id=job_id, input_id=99999)
         exp = services.add_object("experiences", {"event": "反馈整理", "actions": ["整理用户反馈。"]}, ["event"])
-        draft = resume_content.compose(job_id, {"reason": "定向稿", "sections": [{"experience_id": exp}]})
+        draft = resume_content.compose(job_id, {"reason": "定向稿", "sections": [{"experience_id": exp, "bullets": ["整理用户反馈。"]}]})
         rid = draft["id"]
         self.assertIn("resume workflow", draft["workflow"]["command"])
         self.assertEqual(workbench.workflow(job_id=job_id, resume_id=rid)["rating"]["status"], "waiting_for_job_analysis")
@@ -229,7 +229,7 @@ class ResumeWorkbenchTests(unittest.TestCase):
             services.add_object("interviews", {**practice, "job_id": other}, ["job_id"])
         with self.assertRaisesRegex(ValueError, "must match"):
             workbench.workflow(job_id=other, resume_id=rid)
-        new = resume_content.compose(job_id, {"reason": "新版本", "sections": [{"experience_id": exp}]})
+        new = resume_content.compose(job_id, {"reason": "新版本", "sections": [{"experience_id": exp, "bullets": ["整理用户反馈。"]}]})
         fresh = workbench.workflow(job_id=job_id, resume_id=new["id"])
         self.assertEqual(fresh["rating"]["status"], "ready")
         self.assertEqual(fresh["mock_interview"]["records"], [])
@@ -239,7 +239,7 @@ class ResumeWorkbenchTests(unittest.TestCase):
         sources.import_records([{"source": "fixture", "source_id": "0", "title": "产品经理", "company": "虚构公司0",
             "description": "整理用户反馈。\n补充新要求。", "url": "https://example.invalid/workflow/0"}])
         self.assertEqual(workbench.workflow(job_id=job_id, resume_id=rid)["rating"]["status"], "waiting_for_job_analysis")
-        general = resume_content.compose(None, {"reason": "底稿", "sections": [{"experience_id": exp}]})
+        general = resume_content.compose(None, {"reason": "底稿", "sections": [{"experience_id": exp, "bullets": ["整理用户反馈。"]}]})
         self.assertEqual(general["workflow"]["mode"], "baseline_only")
         with connect() as db:
             general_job = db.execute("SELECT job_id FROM resumes WHERE id=?", (general["id"],)).fetchone()[0]

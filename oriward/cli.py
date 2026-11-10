@@ -9,7 +9,7 @@ import hashlib
 from .db import connect, database_path, deserialize
 from . import services as s
 from . import sources, assessment, feedback, discovery, tracking, official
-from . import migrations
+from . import migrations, resume_editorial
 from . import experience_library, onboarding, search_runs, resume_content, resume_workbench, intake_cli, search_cli
 from .core import actions as core_actions, assertions as core_belief, context as core_context
 from .core import goals as core_goals, pipeline as core_pipeline, reflection as core_reflection
@@ -200,6 +200,10 @@ def run(argv=None):
             x.add_argument("--reference-job-ids", type=int, nargs="+")
             x.add_argument("--target-title")
             x.add_argument("--offset", type=int, default=0); x.add_argument("--budget", type=int, default=6000)
+            x = actions.add_parser("editorial-packet", help="Read the actual draft with JD, sources and timeline")
+            x.add_argument("--resume-id", type=int, required=True)
+            x = actions.add_parser("editorial-review", help="Record the host Agent's actual editorial review")
+            x.add_argument("--file", required=True)
             x = actions.add_parser("compose")
             x.add_argument("--job-id", type=int)
             x.add_argument("--reference-job-ids", type=int, nargs="+")
@@ -646,6 +650,10 @@ def run(argv=None):
         if args.action == "compose":
             p(resume_content.compose(args.job_id, s.json_file(args.file), reference_job_ids=args.reference_job_ids,
                                      target_title=args.target_title)); return
+        if args.action == "editorial-packet":
+            p(resume_editorial.packet(args.resume_id)); return
+        if args.action == "editorial-review":
+            p(resume_editorial.save_review(s.json_file(args.file))); return
         if args.action == "cleanup":
             p(resume_content.cleanup(job_id=args.job_id, apply=args.apply, purge=args.purge)); return
         if args.action == "build":

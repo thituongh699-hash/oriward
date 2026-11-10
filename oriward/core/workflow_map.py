@@ -26,7 +26,7 @@ MODULES = (
     {"id": "resume_creation", "name": "简历制作", "primary_layer": "short_term",
      "reads": ["experience_id", "assertion_id", "direction_id", "job_id", "目标 JD 与同类岗位补充 JD", "用户要求与岗位分析"],
      "writes": ["resume_id", "简历版本与来源映射", "岗位评级与模拟面试反馈"],
-     "entry": ["resume workflow", "resume tailor-packet", "resume compose", "resume revise"],
+     "entry": ["resume workflow", "resume tailor-packet", "resume compose", "resume revise", "resume editorial-packet", "resume editorial-review"],
      "feeds": ["job_search_application", "personal_growth"]},
     {"id": "job_search_application", "name": "岗位搜索与投递", "primary_layer": "short_term",
      "reads": ["direction_id", "goal_id", "job_id", "resume_id"],

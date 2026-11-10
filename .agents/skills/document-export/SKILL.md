@@ -10,11 +10,11 @@ Convert registered drafts for local use; return to the career skill for wording 
 1. For resumes use `--resume-id`; never rewrite claims in layout. Keep diagnostics in the manifest; export does not change status.
 2. For plans/reports, follow [export-contract](references/export-contract.md) and supply structured JSON with source dates and actual/mock/hypothesis labels.
 3. Run from the repository root with the host Python and optional document dependencies. `--probe` checks availability without writing.
-4. Default to `modern-cn`, honoring personal `reference`/`clean` choices and supplied photos. Preserve source order and experience grouping; impose no universal order, page count or template. Keep ATS-readable text order and each role, dates, bullets and links together. Finish content before export; never invent claims or sections.
+4. For registered resumes, use the template stored with that version unless an explicit `--template` overrides it. Composition selects explicit `data.template`, then `profile.resume_preferences.template`, then `reference`; generic structured documents default to `modern-cn`. Honor supplied photos. Preserve source order, degree nesting and experience grouping; impose no universal order, page count or template. Keep ATS-readable text order and each role, dates, bullets and links together. Finish content before export; never invent claims or sections.
 5. Export to a new output directory. `--renderer auto` prefers Word, then LibreOffice, to render the editable DOCX as PDF; it falls back to ReportLab and records the renderer. `--renderer reportlab` selects that fallback directly. Explicit `word` or `libreoffice` choices fail if unavailable.
 
 ```text
-python .agents/skills/document-export/scripts/export_documents.py --resume-id <ID> --output-dir outputs/<new-dir> --template modern-cn
+python .agents/skills/document-export/scripts/export_documents.py --resume-id <ID> --output-dir outputs/<new-dir>
 python .agents/skills/document-export/scripts/export_documents.py --input <structured-json> --output-dir outputs/<new-dir> --template modern-cn --photo <local-image>
 ```
 

@@ -29,11 +29,48 @@ class DocumentExportTests(unittest.TestCase):
         self.assertFalse(result["writes"])
         self.assertIn("docx", result["dependencies"])
 
-    def test_generic_default_keeps_personal_reference_as_explicit_option(self):
-        self.assertEqual(exporter.export_document.__kwdefaults__["template"], "modern-cn")
+    def test_automatic_default_keeps_structured_documents_modern(self):
+        self.assertIsNone(exporter.export_document.__kwdefaults__["template"])
+        self.assertEqual(exporter._resolve_template(None, None), ("modern-cn", "default.structured"))
         self.assertEqual(exporter.export_document.__kwdefaults__["page_policy"], "a4-1-3")
         self.assertEqual(exporter.TEMPLATES["reference"]["label"], "个人参考模板")
         self.assertEqual(exporter.TEMPLATES["reference"]["margin"], 1.35)
+
+    def test_registered_template_survives_preference_change_and_explicit_override_wins(self):
+        from oriward import resume_content, services
+        with patch.dict(os.environ, {"ORIWARD_DB": str(self.root / "template.sqlite3"),
+                                     "ORIWARD_OUTPUT_DIR": str(self.root / "resumes")}):
+            services.save_profile({"display_name": "Fictional Candidate",
+                                   "resume_preferences": {"template": "clean"}})
+            eid = services.add_object("experiences", {"event": "Fictional report project",
+                "actions": ["Built a report"], "outcomes": [], "evidence": []}, ["event"])
+            receipt = resume_content.compose(None, {"reason": "Preserve the chosen layout",
+                "template": "modern-cn", "sections": [{"experience_id": eid, "category": "项目经历",
+                "bullets": [{"text": "Built a report", "source_texts": ["Built a report"]}]}]})
+            services.save_profile({"display_name": "Fictional Candidate",
+                                   "resume_preferences": {"template": "reference"}})
+            self.assertEqual(exporter._resolve_template(None, receipt["id"]),
+                             ("modern-cn", "resume.composition"))
+            self.assertEqual(exporter._resolve_template("clean", receipt["id"]), ("clean", "explicit"))
+            # Legacy registered drafts have no composition snapshot.
+            with patch.object(resume_content, "composition_for_resume", return_value=None):
+                self.assertEqual(exporter._resolve_template(None, receipt["id"]),
+                                 ("reference", "profile.resume_preferences.template"))
+                services.save_profile({"display_name": "Fictional Candidate", "resume_preferences": {}})
+                self.assertEqual(exporter._resolve_template(None, receipt["id"]), ("reference", "default.resume"))
+            try:
+                import docx  # noqa: F401
+                document, _ = exporter._load_resume(receipt["id"])
+                exporter._choose_font(exporter._all_text(document), None)
+            except ImportError:
+                self.skipTest("python-docx unavailable")
+            except exporter.ExportError as exc:
+                self.skipTest(f"No local font: {exc}")
+            for override, expected, source in ((None, "modern-cn", "resume.composition"),
+                                                ("clean", "clean", "explicit")):
+                manifest = exporter.export_document(resume_id=receipt["id"],
+                    output_dir=self.root / expected, formats=("docx",), template=override)
+                self.assertEqual((manifest["template"], manifest["template_source"]), (expected, source))
 
     def test_historical_draft_keeps_source_correction_diagnostics(self):
         from oriward import experience_library as lib, services, sources

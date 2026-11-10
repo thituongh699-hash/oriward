@@ -154,11 +154,12 @@ def _packaging(bullet, text, facts, quotes):
 
 def revise_resume(data):
     """Compose a complete new draft and append feedback/version provenance."""
-    s.validate_dict(data, ["base_resume_id", "reason", "sections"])
+    s.validate_dict(data, ["base_resume_id", "reason"])
+    data = {"sections": [], **data}
     base_id = _id(data["base_resume_id"], "base_resume_id")
     reason = _text(data["reason"], "reason")
-    if not isinstance(data["sections"], list) or not data["sections"]:
-        raise s.ValidationError("sections must be a nonempty array")
+    if not isinstance(data["sections"], list):
+        raise s.ValidationError("sections must be an array")
     feedback_ids = _ids(data.get("feedback_ids", []), "feedback_ids")
     review_id = data.get("review_id")
     from . import resume_content
@@ -180,14 +181,24 @@ def revise_resume(data):
                 raise s.ValidationError("Feedback must reference this job and a base version")
         baseline = resume_content.composition_for_resume(base_id)
         if baseline is None:
+            # Legacy drafts have no recoverable authored section structure. A
+            # complete explicit replacement is safe; copying raw facts is not.
+            replacement_ids = set()
+            for section in data["sections"]:
+                ids = section.get("experience_ids", [section.get("experience_id")]) if isinstance(section, dict) else []
+                if isinstance(ids, list):
+                    replacement_ids.update(_id(eid, "experience_id") for eid in ids)
+            omitted = set(_ids(data.get("exclude_experience_ids", []), "exclude_experience_ids"))
+            if set(deserialize(base["experience_ids"])) - replacement_ids - omitted - stale_ids:
+                raise s.ValidationError("Base resume has no composition snapshot; supply explicit sections for all retained experience IDs before revising; raw source facts are never generated automatically")
             baseline = {"sections": []}
-            for eid in deserialize(base["experience_ids"]):
-                if eid in stale_ids:
-                    continue
-                exp = validate_for_resume(db, eid)
-                baseline["sections"].append({"experience_id": eid, "bullets": usable_facts(exp)})
         baseline = json.loads(json.dumps(baseline))
         old_profile = baseline.get("_profile_snapshot")
+        if isinstance(old_profile, dict) and baseline.get("education_entries") and "education_entries" not in data:
+            current_profile = s.get_profile()
+            if any(old_profile.get(key) != current_profile.get(key)
+                   for key in ("education", "education_history", "summary_verified")):
+                raise s.ValidationError("Profile education changed; provide refreshed education_entries with the existing education keys or update academic education_key assignments before revising")
         if isinstance(old_profile, dict) and "profile_sections" not in data:
             current_profile = s.get_profile()
             heading_fields = {"教育经历": ("education", "education_history", "summary_verified"),
@@ -236,6 +247,11 @@ def revise_resume(data):
                 bullet["experience_ids"] = owners
                 bullets.append(bullet)
             retained["bullets"] = bullets
+            if not bullets:
+                retained["mode"] = "brief"
+            # Shared metadata is unsupported after one of its sources is removed.
+            for key in ("title", "title_claim", "links"):
+                retained.pop(key, None)
             return retained
         sections = []
         consumed_replacements = set()
@@ -262,10 +278,8 @@ def revise_resume(data):
                 for index, replacement in candidates:
                     ids = section_ids(replacement)
                     additions = replacement.get("bullets")
-                    if not additions:
-                        additions = [fact for eid in ids for fact in
-                                     (validate_for_resume(db, eid).get("actions", []) +
-                                      validate_for_resume(db, eid).get("outcomes", []))[:1]]
+                    if not isinstance(additions, list) or (not additions and replacement.get("mode", "expanded") != "brief"):
+                        raise s.ValidationError("Revision requires explicit nonempty bullets or brief with []")
                     for original in additions:
                         bullet = {"text": original} if isinstance(original, str) else dict(original)
                         bullet.setdefault("experience_ids", ids)
@@ -284,6 +298,9 @@ def revise_resume(data):
             ids = summary.get("experience_ids") if isinstance(summary, dict) else None
             if summary and (ids is None or stale_ids.intersection(ids)):
                 baseline.pop("summary", None)
+        if "education_entries" in data and "profile_sections" not in data:
+            baseline["profile_sections"] = [item for item in baseline.get("profile_sections", [])
+                                            if item.get("heading") != "教育经历"]
         baseline.update({key: value for key, value in data.items()
                          if key not in {"base_resume_id", "review_id", "feedback_ids", "sections"}})
         baseline["sections"] = sections
